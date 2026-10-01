@@ -1,0 +1,11 @@
+# ── Dependencias del proyecto dashboard-finance ──
+pandas
+numpy
+statsmodels
+yfinance
+ccxt
+fredapi
+python-dotenv
+streamlit
+plotly
+pyyaml

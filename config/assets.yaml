@@ -1,0 +1,115 @@
+# ==============================================================================
+# CONFIGURACIÓN DE ACTIVOS — dashboard-finance
+# ==============================================================================
+# Para agregar o quitar activos, editá la lista correspondiente.
+# Cada sección define su fuente (yahoo, ccxt, fred) y los símbolos a monitorear.
+
+indices:
+  fuente: yahoo
+  descripcion: "Índices globales principales"
+  activos:
+    - "^NDX"     # Nasdaq 100
+    - "^GSPC"    # S&P 500
+    - "^DJI"     # Dow Jones Industrial Average
+    - "^RUT"     # Russell 2000
+    - "^GDAXI"   # DAX (Alemania)
+    - "^N225"    # Nikkei 225 (Japón)
+
+metales:
+  fuente: yahoo
+  descripcion: "Futuros de metales preciosos e industriales"
+  activos:
+    - "GC=F"     # Oro (Gold Futures)
+    - "SI=F"     # Plata (Silver Futures)
+    - "HG=F"     # Cobre (Copper Futures)
+    - "PL=F"     # Platino (Platinum Futures)
+
+equity:
+  fuente: yahoo
+  descripcion: "ETFs sectoriales de EE.UU. y acciones Mega-Cap"
+  activos:
+    # Sectores (SPDR ETFs)
+    - "XLK"      # Tecnología
+    - "XLF"      # Financiero
+    - "XLE"      # Energía
+    - "XLV"      # Salud
+    - "XLY"      # Consumo Discrecional
+    - "XLP"      # Consumo Básico
+    - "XLI"      # Industrial
+    - "XLB"      # Materiales
+    - "XLU"      # Servicios Públicos (Utilities)
+    - "XLRE"     # Bienes Raíces (Real Estate)
+    - "XLC"      # Comunicaciones
+    # Mega Caps
+    - "AAPL"     # Apple
+    - "MSFT"     # Microsoft
+    - "NVDA"     # Nvidia
+    - "GOOGL"    # Alphabet (Google)
+    - "AMZN"     # Amazon
+    - "META"     # Meta (Facebook)
+    - "TSLA"     # Tesla
+
+smallcaps:
+  fuente: yahoo
+  descripcion: "ETFs de pequeñas y medianas empresas de EE.UU."
+  activos:
+    - "IWM"      # iShares Russell 2000 ETF
+    - "IJR"      # iShares Core S&P Small-Cap ETF
+    - "IWO"      # iShares Russell 2000 Growth ETF
+    - "IWN"      # iShares Russell 2000 Value ETF
+
+cripto:
+  fuente: ccxt
+  descripcion: "Criptomonedas principales y tokens de interés"
+  activos:
+    - "BTC/USDT"
+    - "ETH/USDT"
+    - "SOL/USDT"
+    - "XRP/USDT"
+    - "HYPE/USDT"
+    - "BNB/USDT"
+
+argentina:
+  fuente: yahoo
+  descripcion: "Acciones argentinas: pares local (BYMA) y ADR (Wall Street)"
+  # Lista de pares: [ticker_local, ticker_adr]
+  pares:
+    - local: "GGAL.BA"
+      adr: "GGAL"
+      nombre: "Grupo Financiero Galicia"
+    - local: "YPFD.BA"
+      adr: "YPF"
+      nombre: "YPF"
+    - local: "PAMP.BA"
+      adr: "PAM"
+      nombre: "Pampa Energía"
+    - local: "BMA.BA"
+      adr: "BMA"
+      nombre: "Banco Macro"
+    - local: "CEPU.BA"
+      adr: "CEPU"
+      nombre: "Central Puerto"
+  # Lista plana de activos para el motor de descarga
+  activos:
+    - "GGAL.BA"
+    - "GGAL"
+    - "YPFD.BA"
+    - "YPF"
+    - "PAMP.BA"
+    - "PAM"
+    - "BMA.BA"
+    - "BMA"
+    - "CEPU.BA"
+    - "CEPU"
+
+referencias:
+  fuente: fred
+  descripcion: "Series macroeconómicas y tasas de la Reserva Federal (FRED)"
+  activos:
+    - "DGS10"         # Tasa del Tesoro de EE.UU. a 10 años
+    - "DGS2"          # Tasa del Tesoro de EE.UU. a 2 años
+    - "T10Y2Y"        # Spread 10Y - 2Y (Curva de rendimientos)
+    - "DFII10"        # Rendimiento real del Tesoro a 10 años (TIPS)
+    - "VIXCLS"        # Índice de Volatilidad CBOE (VIX)
+    - "DTWEXBGS"      # Índice del Dólar estadounidense (Nominal Broad U.S. Dollar Index)
+    - "BAMLH0A0HYM2"  # Spread High Yield de Bonos Corporativos de EE.UU. (ICE BofA)
