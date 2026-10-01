@@ -1,0 +1,60 @@
+# ==============================================================================
+# CONFIGURACIÓN DE PARES PARA COINTEGRACIÓN — dashboard-finance
+# ==============================================================================
+# Pares a evaluar en ventanas móviles (1h, 4h, 1D).
+# Cada par se evalúa en logaritmo: y = asset_y, x = asset_x (spread = y - beta * x)
+
+indices:
+  - y: "^NDX"
+    x: "^GSPC"
+    nombre: "Nasdaq 100 / S&P 500"
+  - y: "^GSPC"
+    x: "^DJI"
+    nombre: "S&P 500 / Dow Jones"
+  - y: "^NDX"
+    x: "^RUT"
+    nombre: "Nasdaq 100 / Russell 2000"
+
+metales:
+  - y: "GC=F"
+    x: "SI=F"
+    nombre: "Oro / Plata"
+  - y: "GC=F"
+    x: "HG=F"
+    nombre: "Oro / Cobre"
+
+equity:
+  - y: "XLK"
+    x: "XLY"
+    nombre: "Tecnología / Consumo Discrecional"
+  - y: "XLF"
+    x: "XLI"
+    nombre: "Financiero / Industrial"
+
+cripto:
+  - y: "BTC/USDT"
+    x: "ETH/USDT"
+    nombre: "Bitcoin / Ethereum"
+  - y: "ETH/USDT"
+    x: "SOL/USDT"
+    nombre: "Ethereum / Solana"
+  - y: "BTC/USDT"
+    x: "SOL/USDT"
+    nombre: "Bitcoin / Solana"
+
+argentina:
+  - y: "GGAL.BA"
+    x: "GGAL"
+    nombre: "Grupo Financiero Galicia (Local vs ADR)"
+  - y: "YPFD.BA"
+    x: "YPF"
+    nombre: "YPF (Local vs ADR)"
+  - y: "PAMP.BA"
+    x: "PAM"
+    nombre: "Pampa Energía (Local vs ADR)"
+  - y: "BMA.BA"
+    x: "BMA"
+    nombre: "Banco Macro (Local vs ADR)"
+  - y: "CEPU.BA"
+    x: "CEPU"
+    nombre: "Central Puerto (Local vs ADR)"

@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""
+run_calc.py — Motor de ejecución de cálculos cuantitativos para dashboard-finance.
+Lee parámetros de config/calc.yaml y config/pairs.yaml.
+Calcula y almacena en SQLite:
+  - Régimen de mercado (dirección + volatilidad)
+  - Semáforo multi-temporalidad (1m a 1D)
+  - Z-Score normalizado por ATR y desvío estándar (|z| > 2)
+  - Cointegración de pares (1h, 4h, 1D) con estabilidad histórica
+  - Referencias macroeconómicas de FRED (nivel, cambio 1M, percentil 10A)
+Imprime en consola una tabla resumen en español por sección.
+
+Uso:
+  python run_calc.py                        # Calcula todo
+  python run_calc.py --seccion cripto       # Solo cripto
+  python run_calc.py --tf 1D                # Solo diario
+"""
+
+import sys
+import os
+import argparse
+import yaml
+import pandas as pd
+from typing import Dict, Any, List, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from src.data import DatabaseManager
+from src.calc import (
+    get_latest_market_regime,
+    compute_multi_timeframe_trends,
+    get_latest_zscore,
+    evaluate_pair_cointegration,
+    analyze_fred_series,
+)
+
+
+def load_yaml(path: str) -> Dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Motor de cálculos de dashboard-finance")
+    parser.add_argument(
+        "--seccion",
+        type=str,
+        default=None,
+        help="Sección a procesar (indices, metales, equity, smallcaps, cripto, argentina, referencias)",
+    )
+    parser.add_argument(
+        "--tf",
+        type=str,
+        default="1h,1D",
+        help="Temporalidades a procesar separadas por coma. Por defecto: 1h,1D",
+    )
+    args = parser.parse_args()
+
+    # Cargar configuraciones
+    assets_cfg = load_yaml("config/assets.yaml")
+    calc_cfg = load_yaml("config/calc.yaml")
+    pairs_cfg = load_yaml("config/pairs.yaml")
+
+    target_tfs = [t.strip() for t in args.tf.split(",") if t.strip()]
+    secciones_a_correr = [args.seccion] if args.seccion else list(assets_cfg.keys())
+
+    db = DatabaseManager()
+
+    print("\n" + "=" * 95)
+    print("🧠 EJECUTANDO MOTOR DE CÁLCULOS CUANTITATIVOS (run_calc.py)")
+    print(f"   Secciones: {', '.join(secciones_a_correr)}")
+    print(f"   Temporalidades: {', '.join(target_tfs)}")
+    print("=" * 95)
+
+    resumen_activos = []
+    resumen_pares = []
+    resumen_macro = []
+    fallos = []
+
+    # -------------------------------------------------------------
+    # 1. Procesar Secciones de Mercado
+    # -------------------------------------------------------------
+    for sec in secciones_a_correr:
+        if sec not in assets_cfg:
+            continue
+
+        sec_data = assets_cfg[sec]
+        fuente = sec_data.get("fuente")
+        activos = sec_data.get("activos", [])
+
+        if fuente == "fred":
+            # Procesar Referencias Macro
+            print(f"\n🏛️  Calculando Referencias Macro FRED [{sec.upper()}]...")
+            for s_id in activos:
+                try:
+                    df_series = db.load_fred_series(s_id)
+                    if df_series.empty:
+                        fallos.append((s_id, "1D", "Sin datos en BD"))
+                        continue
+                    m_res = analyze_fred_series(
+                        df_series,
+                        change_days=calc_cfg["macro"]["change_days"] if "change_days" in calc_cfg["macro"] else 30,
+                        percentile_years=calc_cfg["macro"].get("percentile_window_years", 10),
+                    )
+                    db.save_macro_result(s_id, m_res)
+                    resumen_macro.append({
+                        "series_id": s_id,
+                        "valor": m_res["current_value"],
+                        "cambio_1m": m_res["change_1m"],
+                        "pct_1m": m_res["pct_change_1m"],
+                        "percentil": m_res["percentile"],
+                        "fecha": str(m_res["timestamp"])[:10] if m_res["timestamp"] else "-",
+                    })
+                except Exception as e:
+                    fallos.append((s_id, "1D", f"Error macro: {str(e)[:40]}"))
+            continue
+
+        print(f"\n📊 Procesando Sección: [{sec.upper()}] ({len(activos)} activos)...")
+
+        for sym in activos:
+            # Cargar todas las temporalidades disponibles para el semáforo multi-tf
+            dfs_by_tf = {}
+            for tf in ["1m", "5m", "15m", "1h", "4h", "1D"]:
+                df_loaded = db.load_candles(sym, tf)
+                if not df_loaded.empty:
+                    dfs_by_tf[tf] = df_loaded
+
+            # Calcular semáforo multi-temporalidad
+            sem_data = compute_multi_timeframe_trends(sym, dfs_by_tf, regime_config=calc_cfg.get("regime"))
+            # Cadena de semáforo visual: 1m 5m 15m 1h 4h 1D
+            emoji_map = {"alcista": "🟢", "bajista": "🔴", "lateral": "⚪", "sin datos": "▫️"}
+            sem_str = " ".join([f"{tf}:{emoji_map.get(sem_data['trends'][tf], '▫️')}" for tf in ["15m", "1h", "4h", "1D"]])
+
+            for tf in target_tfs:
+                df = dfs_by_tf.get(tf)
+                if df is None or df.empty or len(df) < 20:
+                    fallos.append((sym, tf, "Datos insuficientes (<20 velas)"))
+                    continue
+
+                try:
+                    # Régimen
+                    reg = get_latest_market_regime(df, config=calc_cfg.get("regime"))
+                    db.save_regime_result(sym, tf, reg)
+
+                    # Z-Score
+                    z = get_latest_zscore(df, config=calc_cfg.get("zscore"))
+                    db.save_zscore_result(sym, tf, z)
+
+                    z_str = f"{z['z_atr']:+.2f}" if z['z_atr'] is not None else "-"
+                    if z["is_extreme"]:
+                        z_str += " ⚠️"
+
+                    resumen_activos.append({
+                        "seccion": sec,
+                        "symbol": sym,
+                        "tf": tf,
+                        "regime": reg["regime"],
+                        "adx": f"{reg['adx']:.1f}" if reg['adx'] else "-",
+                        "atr_pct": f"{reg['atr_percentile']:.0f}%" if reg['atr_percentile'] else "-",
+                        "z_atr": z_str,
+                        "semaforo": sem_str,
+                    })
+
+                except Exception as e:
+                    fallos.append((sym, tf, f"Error cálculo: {str(e)[:40]}"))
+
+    # -------------------------------------------------------------
+    # 2. Procesar Cointegración de Pares
+    # -------------------------------------------------------------
+    coint_allowed_tfs = [t for t in target_tfs if t in calc_cfg["cointegration"]["allowed_timeframes"]]
+    print(f"\n🔗 Procesando Cointegración de Pares (en {', '.join(coint_allowed_tfs)})...")
+
+    for sec in secciones_a_correr:
+        pares_seccion = pairs_cfg.get(sec, [])
+        for p_info in pares_seccion:
+            sym_y = p_info["y"]
+            sym_x = p_info["x"]
+            nombre = p_info.get("nombre", f"{sym_y}/{sym_x}")
+            pair_key = f"{sym_y}/{sym_x}"
+
+            for tf in coint_allowed_tfs:
+                df_y = db.load_candles(sym_y, tf)
+                df_x = db.load_candles(sym_x, tf)
+
+                if df_y.empty or df_x.empty or len(df_y) < 30 or len(df_x) < 30:
+                    continue
+
+                try:
+                    c_res = evaluate_pair_cointegration(
+                        df_y,
+                        df_x,
+                        window_size=calc_cfg["cointegration"].get("window_size", 250),
+                        p_value_threshold=calc_cfg["cointegration"].get("p_value_threshold", 0.05),
+                        rolling_windows_eval=calc_cfg["cointegration"].get("rolling_windows_eval", 20),
+                    )
+
+                    last_ts = df_y["timestamp"].max()
+                    db.save_cointegration_result(pair_key, tf, last_ts, c_res)
+
+                    coint_str = "✅ SÍ" if c_res["is_cointegrated"] else "❌ NO"
+                    p_val_str = f"{c_res['p_value']:.4f}" if c_res['p_value'] is not None else "-"
+                    beta_str = f"{c_res['beta']:.2f}" if c_res['beta'] is not None else "-"
+                    z_spr_str = f"{c_res['z_spread']:+.2f}" if c_res['z_spread'] is not None else "-"
+                    hl_str = f"{c_res['half_life']:.1f} v" if c_res['half_life'] is not None else "-"
+
+                    resumen_pares.append({
+                        "seccion": sec,
+                        "par": nombre,
+                        "tf": tf,
+                        "cointegrado": coint_str,
+                        "p_valor": p_val_str,
+                        "beta": beta_str,
+                        "z_spread": z_spr_str,
+                        "half_life": hl_str,
+                        "estabilidad": f"{c_res['pct_coint_windows']:.0f}%",
+                    })
+
+                except Exception as e:
+                    fallos.append((pair_key, tf, f"Error coint: {str(e)[:40]}"))
+
+    # -------------------------------------------------------------
+    # 3. Imprimir Tablas de Resumen Prolijas en Español
+    # -------------------------------------------------------------
+    print("\n" + "=" * 95)
+    print("📈 TABLA RESUMEN: RÉGIMEN, Z-SCORE Y SEMÁFORO DE TENDENCIAS")
+    print("-" * 95)
+    print(f"{'SECCIÓN':<10} | {'ACTIVO':<10} | {'TF':<4} | {'RÉGIMEN DE MERCADO':<22} | {'ADX':<5} | {'Z-ATR':<8} | {'SEMÁFORO (15m·1h·4h·1D)'}")
+    print("-" * 95)
+    for r in resumen_activos:
+        print(f"{r['seccion']:<10} | {r['symbol']:<10} | {r['tf']:<4} | {r['regime']:<22} | {r['adx']:<5} | {r['z_atr']:<8} | {r['semaforo']}")
+    print("=" * 95)
+
+    if resumen_pares:
+        print("\n" + "=" * 95)
+        print("🔗 TABLA RESUMEN: COINTEGRACIÓN Y ARBITRAJE ESTADÍSTICO DE PARES")
+        print("-" * 95)
+        print(f"{'PAR':<35} | {'TF':<4} | {'COINT?':<7} | {'P-VALOR':<8} | {'BETA':<6} | {'Z-SPREAD':<8} | {'HALF-LIFE':<10} | {'ESTABILIDAD'}")
+        print("-" * 95)
+        for p in resumen_pares:
+            print(f"{p['par']:<35} | {p['tf']:<4} | {p['cointegrado']:<7} | {p['p_valor']:<8} | {p['beta']:<6} | {p['z_spread']:<8} | {p['half_life']:<10} | {p['estabilidad']}")
+        print("=" * 95)
+
+    if resumen_macro:
+        print("\n" + "=" * 95)
+        print("🏛️  TABLA RESUMEN: REFERENCIAS MACROECONÓMICAS (FRED)")
+        print("-" * 95)
+        print(f"{'SERIE':<14} | {'VALOR ACTUAL':<14} | {'CAMBIO 1 MES':<14} | {'CAMBIO %':<12} | {'PERCENTIL 10A':<14} | {'FECHA'}")
+        print("-" * 95)
+        for m in resumen_macro:
+            print(f"{m['series_id']:<14} | {m['valor']:<14} | {m['cambio_1m']:<+14.2f} | {m['pct_1m']:<+11.1f}% | {m['percentil']:<13.1f}% | {m['fecha']}")
+        print("=" * 95)
+
+    # 4. Reporte de advertencias o fallos si los hubo
+    if fallos:
+        print("\nℹ️  Avisos de datos insuficientes o no disponibles:")
+        for sym, tf, motivo in fallos[:10]:
+            print(f"   • {sym} ({tf}): {motivo}")
+        if len(fallos) > 10:
+            print(f"   ... y {len(fallos) - 10} más.")
+    else:
+        print("\n✅ Todos los cálculos se completaron sin omisiones ni errores.")
+
+
+if __name__ == "__main__":
+    main()

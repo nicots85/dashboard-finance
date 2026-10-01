@@ -86,6 +86,73 @@ class DatabaseManager:
                 ON fred_series (series_id, timestamp);
                 """
             )
+
+            # 3. Tablas de Cálculos Cuantitativos (Fase 3)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS calc_regimes (
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    direction TEXT,
+                    volatility TEXT,
+                    regime TEXT,
+                    adx REAL,
+                    atr_percentile REAL,
+                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    PRIMARY KEY (symbol, timeframe, timestamp)
+                );
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS calc_zscores (
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    z_atr REAL,
+                    z_std REAL,
+                    is_extreme INTEGER,
+                    percentile REAL,
+                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    PRIMARY KEY (symbol, timeframe, timestamp)
+                );
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS calc_cointegration (
+                    pair TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    p_value REAL,
+                    beta REAL,
+                    z_spread REAL,
+                    half_life REAL,
+                    is_cointegrated INTEGER,
+                    pct_coint_windows REAL,
+                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    PRIMARY KEY (pair, timeframe, timestamp)
+                );
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS calc_macro (
+                    series_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    current_value REAL,
+                    change_1m REAL,
+                    pct_change_1m REAL,
+                    percentile REAL,
+                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    PRIMARY KEY (series_id, timestamp)
+                );
+                """
+            )
             conn.commit()
 
     def get_latest_candle_timestamp(self, symbol: str, timeframe: str) -> Optional[pd.Timestamp]:
@@ -211,6 +278,114 @@ class DatabaseManager:
             conn.commit()
 
         return len(records)
+
+    def save_regime_result(self, symbol: str, timeframe: str, regime_data: Dict[str, Any]) -> None:
+        """Guarda o actualiza el resultado de régimen de mercado para la última vela."""
+        if not regime_data or not regime_data.get("timestamp"):
+            return
+        ts_str = pd.to_datetime(regime_data["timestamp"], utc=True).strftime("%Y-%m-%d %H:%M:%S%z")
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO calc_regimes 
+                (symbol, timeframe, timestamp, direction, volatility, regime, adx, atr_percentile, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'utc'));
+                """,
+                (
+                    symbol,
+                    timeframe,
+                    ts_str,
+                    regime_data.get("direction"),
+                    regime_data.get("volatility"),
+                    regime_data.get("regime"),
+                    regime_data.get("adx"),
+                    regime_data.get("atr_percentile"),
+                ),
+            )
+            conn.commit()
+
+    def save_zscore_result(self, symbol: str, timeframe: str, z_data: Dict[str, Any]) -> None:
+        """Guarda o actualiza el z-score para la última vela."""
+        if not z_data or not z_data.get("timestamp"):
+            return
+        ts_str = pd.to_datetime(z_data["timestamp"], utc=True).strftime("%Y-%m-%d %H:%M:%S%z")
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO calc_zscores 
+                (symbol, timeframe, timestamp, z_atr, z_std, is_extreme, percentile, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'utc'));
+                """,
+                (
+                    symbol,
+                    timeframe,
+                    ts_str,
+                    z_data.get("z_atr"),
+                    z_data.get("z_std"),
+                    1 if z_data.get("is_extreme") else 0,
+                    z_data.get("z_percentile"),
+                ),
+            )
+            conn.commit()
+
+    def save_cointegration_result(
+        self,
+        pair: str,
+        timeframe: str,
+        timestamp: Any,
+        coint_data: Dict[str, Any],
+    ) -> None:
+        """Guarda el resultado del test de cointegración."""
+        if not timestamp:
+            timestamp = pd.Timestamp.now(tz="UTC")
+        ts_str = pd.to_datetime(timestamp, utc=True).strftime("%Y-%m-%d %H:%M:%S%z")
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO calc_cointegration 
+                (pair, timeframe, timestamp, p_value, beta, z_spread, half_life, is_cointegrated, pct_coint_windows, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'utc'));
+                """,
+                (
+                    pair,
+                    timeframe,
+                    ts_str,
+                    coint_data.get("p_value"),
+                    coint_data.get("beta"),
+                    coint_data.get("z_spread"),
+                    coint_data.get("half_life"),
+                    1 if coint_data.get("is_cointegrated") else 0,
+                    coint_data.get("pct_coint_windows"),
+                ),
+            )
+            conn.commit()
+
+    def save_macro_result(self, series_id: str, macro_data: Dict[str, Any]) -> None:
+        """Guarda el análisis de una serie FRED."""
+        if not macro_data or not macro_data.get("timestamp"):
+            return
+        ts_str = pd.to_datetime(macro_data["timestamp"], utc=True).strftime("%Y-%m-%d %H:%M:%S%z")
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO calc_macro 
+                (series_id, timestamp, current_value, change_1m, pct_change_1m, percentile, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'utc'));
+                """,
+                (
+                    series_id,
+                    ts_str,
+                    macro_data.get("current_value"),
+                    macro_data.get("change_1m"),
+                    macro_data.get("pct_change_1m"),
+                    macro_data.get("percentile"),
+                ),
+            )
+            conn.commit()
 
     def load_candles(
         self,

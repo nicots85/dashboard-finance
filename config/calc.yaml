@@ -1,0 +1,39 @@
+# ==============================================================================
+# CONFIGURACIÓN DE PARÁMETROS DE CÁLCULO — dashboard-finance
+# ==============================================================================
+# Todos los parámetros son editables sin tocar el código de cálculo.
+
+regime:
+  # Dirección de tendencia
+  ema_period: 50              # Período de la media exponencial para determinar pendiente
+  adx_period: 14              # Período del Average Directional Index (ADX)
+  adx_threshold_lateral: 20.0 # Si ADX < 20, el mercado se clasifica como 'lateral'
+  min_bars_required: 60       # Mínimo de velas para calcular régimen de forma fiable
+
+  # Volatilidad
+  atr_period: 14              # Período del Average True Range (ATR)
+  atr_percentile_window: 250  # Ventana móvil de velas históricas para percentil de ATR
+  volatility_low_pct: 25.0    # Percentil por debajo del cual es 'baja vol'
+  volatility_high_pct: 75.0   # Percentil por encima del cual es 'alta vol'
+
+zscore:
+  mean_type: "ema"            # 'ema' o 'sma'
+  period: 50                  # Período de la media móvil central
+  atr_period: 14              # Período de ATR para normalización de dispersión
+  std_period: 50              # Período de desviación estándar (versión clásica)
+  extreme_threshold: 2.0      # Umbral para marcar zonas extremas (|z| > 2)
+  percentile_window: 250      # Ventana para percentil histórico del z-score actual
+
+cointegration:
+  p_value_threshold: 0.05     # p-valor máximo para considerar cointegrado (95% confianza)
+  window_size: 250            # Cantidad de velas para el test de Engle-Granger
+  rolling_windows_eval: 20    # Cantidad de ventanas recientes para porcentaje de estabilidad
+  # Temporalidades permitidas para cointegración
+  allowed_timeframes:
+    - "1D"
+    - "4h"
+    - "1h"
+
+macro:
+  change_period_days: 30      # Período para calcular cambio relativo de series FRED (~1 mes)
+  percentile_window_years: 10 # Años para calcular percentil histórico del valor actual
