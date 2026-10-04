@@ -129,7 +129,7 @@ def main():
             # Calcular semáforo multi-temporalidad
             sem_data = compute_multi_timeframe_trends(sym, dfs_by_tf, regime_config=calc_cfg.get("regime"))
             # Cadena de semáforo visual: 1m 5m 15m 1h 4h 1D
-            emoji_map = {"alcista": "🟢", "bajista": "🔴", "lateral": "⚪", "sin datos": "▫️"}
+            emoji_map = {"alcista": "🟢", "bajista": "🔴", "alcista (débil)": "🟩", "bajista (débil)": "🟥", "lateral": "⚪", "sin datos": "▫️"}
             sem_str = " ".join([f"{tf}:{emoji_map.get(sem_data['trends'][tf], '▫️')}" for tf in ["15m", "1h", "4h", "1D"]])
 
             for tf in target_tfs:
@@ -201,7 +201,7 @@ def main():
                     coint_str = "✅ SÍ" if c_res["is_cointegrated"] else "❌ NO"
                     p_val_str = f"{c_res['p_value']:.4f}" if c_res['p_value'] is not None else "-"
                     beta_str = f"{c_res['beta']:.2f}" if c_res['beta'] is not None else "-"
-                    z_spr_str = f"{c_res['z_spread']:+.2f}" if c_res['z_spread'] is not None else "-"
+                    z_spr_str = f"{c_res['z_spread']:+.2f}" if (c_res['z_spread'] is not None and c_res['is_cointegrated']) else "-"
                     hl_str = f"{c_res['half_life']:.1f} v" if c_res['half_life'] is not None else "-"
 
                     resumen_pares.append({

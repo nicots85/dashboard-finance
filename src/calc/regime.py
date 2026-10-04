@@ -72,6 +72,7 @@ def compute_market_regime_history(
     atr_percentile_window: int = 250,
     volatility_low_pct: float = 25.0,
     volatility_high_pct: float = 75.0,
+    weak_trend_z: float = 2.0,
 ) -> pd.DataFrame:
     """
     Calcula el régimen de mercado para toda la serie histórica de un activo.
@@ -102,20 +103,30 @@ def compute_market_regime_history(
     adx = calculate_adx(out, period=adx_period)
     out["adx"] = adx
 
+    # ATR (se necesita antes para el z-ATR de la regla 'débil')
+    atr = calculate_atr(out, period=atr_period)
+    out["atr"] = atr
+
     # 3. Clasificación de Dirección
     # Lateral si ADX < umbral (mercado sin tendencia fuerte)
     # Si ADX >= umbral: alcista si ema_slope > 0, bajista si ema_slope < 0
+    # Excepción 'débil': si ADX < umbral pero el z-ATR es extremo (|z| > umbral)
+    # y la pendiente de la EMA confirma, se etiqueta 'alcista (débil)' / 'bajista (débil)'.
+    atr_safe = atr.replace(0, np.nan)
+    z_atr = (out["close"] - ema) / atr_safe
+    out["z_atr"] = z_atr
+
+    weak_up = (adx < adx_threshold_lateral) & (z_atr > weak_trend_z) & (ema_slope > 0)
+    weak_down = (adx < adx_threshold_lateral) & (z_atr < -weak_trend_z) & (ema_slope < 0)
+
     conditions_dir = [
-        adx < adx_threshold_lateral,
         (adx >= adx_threshold_lateral) & (ema_slope > 0),
         (adx >= adx_threshold_lateral) & (ema_slope <= 0),
+        weak_up,
+        weak_down,
     ]
-    choices_dir = ["lateral", "alcista", "bajista"]
+    choices_dir = ["alcista", "bajista", "alcista (débil)", "bajista (débil)"]
     out["direction"] = np.select(conditions_dir, choices_dir, default="lateral")
-
-    # 4. ATR y Percentil histórico
-    atr = calculate_atr(out, period=atr_period)
-    out["atr"] = atr
 
     # Percentil móvil del ATR respecto a su ventana histórica
     def rolling_pct(x):
@@ -163,6 +174,7 @@ def get_latest_market_regime(
     atr_win = config.get("atr_percentile_window", 250)
     vol_low = config.get("volatility_low_pct", 25.0)
     vol_high = config.get("volatility_high_pct", 75.0)
+    weak_z = config.get("weak_trend_z", 2.0)
 
     if df.empty or len(df) < 20:
         return {
@@ -186,6 +198,7 @@ def get_latest_market_regime(
         atr_percentile_window=atr_win,
         volatility_low_pct=vol_low,
         volatility_high_pct=vol_high,
+        weak_trend_z=weak_z,
     )
 
     last_row = history.iloc[-1]

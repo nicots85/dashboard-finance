@@ -108,12 +108,26 @@ class CryptoAdapter(BaseAdapter):
         if ex.markets and symbol not in ex.markets:
             raise ValueError(f"Símbolo {symbol} no cotiza en {exchange_name}")
 
-        since_ms = int(since.timestamp() * 1000) if since is not None else None
+        # Historia inicial por temporalidad cuando no hay 'since' (carga completa).
+        # 1m queda limitado a los últimos 90 días para no demorar horas.
+        now_ms = int(time.time() * 1000)
+        if since is None:
+            TF_LOOKBACK_DAYS = {"1d": None, "4h": None, "1h": None, "15m": 365, "5m": 120, "1m": 90}
+            back_days = TF_LOOKBACK_DAYS[timeframe]
+            if back_days is None:
+                # Historia completa desde 2017 (los exchanges no tienen mucho más)
+                since_ms = int(pd.Timestamp("2017-01-01", tz="UTC").timestamp() * 1000)
+            else:
+                since_ms = now_ms - back_days * 24 * 60 * 60 * 1000
+            if timeframe == "1m":
+                logger.info(f"{symbol} 1m: descarga limitada a los últimos 90 días")
+        else:
+            since_ms = int(since.timestamp() * 1000)
+
         all_ohlcv: List[list] = []
         batch_limit = 1000
+        max_batches = 200  # techo de seguridad (~200k velas)
 
-        # Si no se pasó 'since', traemos historia inicial
-        max_batches = 10 if since is None else 50
         for _ in range(max_batches):
             ohlcv = None
             for attempt in range(1, self.max_retries + 1):
@@ -136,7 +150,7 @@ class CryptoAdapter(BaseAdapter):
 
             # Avanzar since_ms para la siguiente página
             last_timestamp = ohlcv[-1][0]
-            if since_ms is not None and last_timestamp <= since_ms:
+            if last_timestamp <= since_ms:
                 break
             since_ms = last_timestamp + 1
 
@@ -148,6 +162,7 @@ class CryptoAdapter(BaseAdapter):
 
         df = pd.DataFrame(all_ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+        df = df.drop_duplicates(subset="timestamp").sort_values("timestamp").reset_index(drop=True)
         return df
 
     def _fetch_hyperliquid(
@@ -196,4 +211,7 @@ class CryptoAdapter(BaseAdapter):
                 "volume": float(c["v"]),
             })
 
-        return pd.DataFrame(records)
+        df = pd.DataFrame(records)
+        if not df.empty:
+            df = df.drop_duplicates(subset="timestamp").sort_values("timestamp").reset_index(drop=True)
+        return df

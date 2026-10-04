@@ -8,6 +8,7 @@ regime:
   ema_period: 50              # Período de la media exponencial para determinar pendiente
   adx_period: 14              # Período del Average Directional Index (ADX)
   adx_threshold_lateral: 20.0 # Si ADX < 20, el mercado se clasifica como 'lateral'
+  weak_trend_z: 2.0           # Umbral de |z-ATR| para etiqueta 'alcista/bajista (débil)' cuando ADX < 20
   min_bars_required: 60       # Mínimo de velas para calcular régimen de forma fiable
 
   # Volatilidad

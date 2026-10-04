@@ -33,6 +33,8 @@ def compute_multi_timeframe_trends(
     color_map = {
         "alcista": "verde",
         "bajista": "rojo",
+        "alcista (débil)": "verde claro",
+        "bajista (débil)": "rojo claro",
         "lateral": "gris",
         "sin datos": "sin datos",
     }

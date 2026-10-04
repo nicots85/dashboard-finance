@@ -100,6 +100,37 @@ dashboard-finance/
 
 ---
 
+## Cómo correr el dashboard (Streamlit)
+
+**Mac / Linux:**
+```bash
+source .venv/bin/activate
+streamlit run app/main.py
+```
+
+**Windows (PowerShell):**
+```powershell
+.venv\Scripts\Activate.ps1
+streamlit run app/main.py
+```
+
+Se abre solo en tu navegador (http://localhost:8501). La pestaña **Índices** está completa; el resto dice "En construcción". Desde la app podés actualizar datos con el botón "🔄 Actualizar datos".
+
+### Actualizar datos manualmente (sin abrir la app)
+
+```bash
+python update_data.py --tf 1m,5m,15m,1h,4h,1D   # descarga todas las temporalidades
+python run_calc.py --tf 1m,5m,15m,1h,4h,1D       # recalcula régimen, z-score, cointegración
+```
+
+### Pruebas sintéticas
+
+```bash
+python test_synthetic.py
+```
+
+---
+
 ## Git: guardar y sincronizar cambios
 
 ### Guardar cambios (commit + push)

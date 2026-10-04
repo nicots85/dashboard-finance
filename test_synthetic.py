@@ -124,6 +124,33 @@ def test_cointegration_synthetic():
     print(f"✅ Test 4 (Cointegración sintética): OK -> Cointegrado={res['is_cointegrated']}, p-valor={res['p_value']:.4f}, beta={res['beta']:.2f}")
 
 
+def test_weak_trend_synthetic():
+    """Serie plana con salto fuerte al final: ADX no reacciona -> 'alcista (débil)'."""
+    np.random.seed(7)
+    dates = pd.date_range("2025-01-01", periods=200, freq="D", tz="UTC")
+    closes = 100.0 + np.random.uniform(-0.1, 0.1, 200)
+    closes[-1] = 108.0  # salto brusco en la última vela
+    highs = closes + np.random.uniform(0.1, 0.2, 200)
+    lows = closes - np.random.uniform(0.1, 0.2, 200)
+    opens = closes - np.random.uniform(-0.05, 0.05, 200)
+    highs[-1] = closes[-1] + 0.2
+    lows[-1] = closes[-1] - 0.5
+    opens[-1] = closes[-2]
+
+    df = pd.DataFrame({
+        "timestamp": dates,
+        "open": opens,
+        "high": highs,
+        "low": lows,
+        "close": closes,
+        "volume": 1000.0,
+    })
+
+    reg = get_latest_market_regime(df)
+    assert reg["direction"] == "alcista (débil)", f"Fallo: se esperaba 'alcista (débil)', se obtuvo '{reg['direction']}' (adx={reg['adx']})"
+    print(f"✅ Test 5 (Salto fuerte en serie plana): OK -> '{reg['direction']}' (ADX={reg['adx']:.1f})")
+
+
 def main():
     print("\n" + "=" * 65)
     print("🧪 EJECUTANDO PRUEBAS AUTOMÁTICAS CON DATOS SINTÉTICOS")
@@ -132,6 +159,7 @@ def main():
     test_lateral_synthetic()
     test_zscore_extreme_synthetic()
     test_cointegration_synthetic()
+    test_weak_trend_synthetic()
     print("=" * 65)
     print("🎯 TODAS LAS PRUEBAS SINTÉTICAS PASARON CON ÉXITO.\n")
 
