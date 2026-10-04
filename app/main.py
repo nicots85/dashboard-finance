@@ -122,7 +122,7 @@ def obtener_cointegracion(seccion, pares):
                 "Cointegrado": "✅ cointegrado" if r["is_cointegrated"] else "❌ no cointegrado",
                 "p-valor": r["p_value"],
                 "Beta": r["beta"],
-                "Z-spread": r["z_spread"] if r["is_cointegrated"] else None,
+                "Z-spread": f"{r['z_spread']:+.2f}" if (r["is_cointegrated"] and r["z_spread"] is not None) else "-",
                 "Vida media (velas)": r["half_life"],
                 "Estabilidad %": r["pct_coint_windows"],
             })
@@ -261,7 +261,7 @@ def render_seccion(seccion):
     styled = (
         df_tabla.style
         .map(resaltar, subset=["Z-ATR", "Z-desvío"])
-        .format({"Z-ATR": "{:+.2f}", "Z-desvío": "{:+.2f}", "Percentil Z": "{:.0f}%"})
+        .format({"Z-ATR": "{:+.2f}", "Z-desvío": "{:+.2f}", "Percentil Z": "{:.0f}%"}, na_rep="-")
     )
     st.dataframe(styled, use_container_width=True)
 
@@ -272,8 +272,8 @@ def render_seccion(seccion):
         st.info("Sin resultados de cointegración guardados aún.")
     else:
         st.dataframe(
-            coint.style.format({"p-valor": "{:.4f}", "Beta": "{:.2f}", "Z-spread": "{:+.2f}",
-                                "Vida media (velas)": "{:.1f}", "Estabilidad %": "{:.0f}%"}),
+            coint.style.format({"p-valor": "{:.4f}", "Beta": "{:.2f}",
+                                "Vida media (velas)": "{:.1f}", "Estabilidad %": "{:.0f}%"}, na_rep="-"),
             use_container_width=True,
         )
 
