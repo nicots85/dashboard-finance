@@ -4,7 +4,7 @@ update_data.py — Comando principal para descarga y actualización incremental 
 Permite actualizar todas las secciones o una específica, y filtrar por temporalidades.
 
 Uso:
-    python update_data.py                     # Actualiza todo (temporalidades por defecto: 1h, 1D)
+    python update_data.py                     # Actualiza todo (temporalidades por defecto: 1m,5m,15m,1h,4h,1D)
     python update_data.py --seccion cripto    # Solo criptomonedas
     python update_data.py --tf 1D             # Solo velas diarias
     python update_data.py --tf 1m,5m,15m,1h,4h,1D --seccion indices
@@ -217,8 +217,8 @@ def main():
     parser.add_argument(
         "--tf",
         type=str,
-        default="1h,1D",
-        help="Temporalidades separadas por coma (ej: 1h,1D o 1m,5m,15m,1h,4h,1D). Por defecto: 1h,1D",
+        default="1m,5m,15m,1h,4h,1D",
+        help="Temporalidades separadas por coma (ej: 1h,1D o 1m,5m,15m,1h,4h,1D). Por defecto: 1m,5m,15m,1h,4h,1D",
     )
     args = parser.parse_args()
 

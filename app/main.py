@@ -303,14 +303,32 @@ def main():
     st.title("📊 Dashboard Financiero")
 
     # Botón actualizar
-    if st.button("🔄 Actualizar datos"):
-        prog = st.progress(0, text="Descargando datos...")
-        subprocess.run([sys.executable, "update_data.py"], cwd=ROOT, check=False)
+    if "tf_update" not in st.session_state:
+        st.session_state.tf_update = None
+
+    c_btn, c_btn2 = st.columns(2)
+    correr_full = c_btn.button("🔄 Actualizar datos (todas las temporalidades)")
+    correr_rapido = c_btn2.button("⚡ Actualización rápida (solo 1h y 1D)")
+
+    if correr_full or correr_rapido:
+        target_tfs = "1m,5m,15m,1h,4h,1D" if correr_full else "1h,1D"
+        prog = st.progress(0, text=f"Descargando datos ({target_tfs})...")
+        p1 = subprocess.run(
+            [sys.executable, "update_data.py", "--tf", target_tfs], cwd=ROOT, check=False
+        )
         prog.progress(50, text="Calculando régimen, z-score y cointegración...")
-        subprocess.run([sys.executable, "run_calc.py"], cwd=ROOT, check=False)
+        p2 = subprocess.run(
+            [sys.executable, "run_calc.py", "--tf", target_tfs], cwd=ROOT, check=False
+        )
         prog.progress(100, text="¡Listo!")
         st.cache_data.clear()
-        st.success("Datos actualizados.")
+
+        if p1.returncode != 0:
+            st.error(f"❌ Falló la descarga de datos (update_data.py). Código de salida: {p1.returncode}. Revisá la consola.")
+        elif p2.returncode != 0:
+            st.error(f"❌ Fallaron los cálculos (run_calc.py). Código de salida: {p2.returncode}. Revisá la consola.")
+        else:
+            st.success(f"✅ Datos actualizados ({target_tfs}).")
 
     tabs = st.tabs(["Índices", "Metales", "Equity", "Small caps", "Cripto", "Argentina"])
     with tabs[0]:

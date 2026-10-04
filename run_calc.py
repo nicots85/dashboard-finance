@@ -52,8 +52,8 @@ def main():
     parser.add_argument(
         "--tf",
         type=str,
-        default="1h,1D",
-        help="Temporalidades a procesar separadas por coma. Por defecto: 1h,1D",
+        default="1m,5m,15m,1h,4h,1D",
+        help="Temporalidades a procesar separadas por coma. Por defecto: 1m,5m,15m,1h,4h,1D",
     )
     args = parser.parse_args()
 
