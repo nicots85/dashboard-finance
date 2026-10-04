@@ -264,6 +264,7 @@ def render_seccion(seccion):
         .format({"Z-ATR": "{:+.2f}", "Z-desvío": "{:+.2f}", "Percentil Z": "{:.0f}%"}, na_rep="-")
     )
     st.dataframe(styled, use_container_width=True)
+    st.caption("▫️ = sin datos (la fuente gratuita no tiene historia para ese activo/temporalidad; para índices, los intradía son cortos: 1m ≈ 7 días, 5m/15m ≈ 60 días).")
 
     # c) Cointegración
     st.subheader("Cointegración de pares")
@@ -337,6 +338,8 @@ def main():
 - **Vida media**: velas promedio que tarda el spread en volver a la media.
 - **Datos gratuitos**: yfinance y Binance tienen retraso de minutos; la intradía corta (1m, 5m, 15m)
   solo cubre un historial limitado.
+- **Intradía de índices**: Yahoo solo guarda poco historial (1m ~7 días, 5m/15m ~60 días), por eso
+  las columnas intradía del semáforo son menos profundas que el 1D.
 - **ADX < 20**: no hay tendencia definida, solo ruido; el sistema lo marca como "lateral".
 """
         )
