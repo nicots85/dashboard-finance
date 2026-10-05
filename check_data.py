@@ -50,10 +50,10 @@ def check_split_alerts(db: DatabaseManager):
         cursor.execute("SELECT DISTINCT symbol FROM candles WHERE timeframe='1D'")
         for (sym,) in cursor.fetchall():
             cursor.execute(
-                "SELECT timestamp, close FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp",
+                "SELECT timestamp, close FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp DESC LIMIT 60",
                 (sym,),
             )
-            rows = cursor.fetchall()
+            rows = list(reversed(cursor.fetchall()))  # cronológico: últimos 60 días
             for i in range(1, len(rows)):
                 prev_ts, prev_c = rows[i - 1]
                 ts, c = rows[i]
@@ -207,13 +207,12 @@ def main():
     print("\n3️⃣b  Alerta de posibles splits (variación de cierre > 40% en 1D):")
     alertas = check_split_alerts(db)
     if not alertas:
-        print("   ✅ No se detectaron variaciones sospechosas de un split.")
+        print("   ✅ Sin splits sospechosos en los últimos 60 días.")
     else:
         for a in alertas[:15]:
-            print(f"   ⚠️  {a['symbol']} el {a['fecha']}: variación de {a['cambio']:.0f}% — posible split.")
-        print("   Cómo corregirlo: borrá las velas de ese activo y volvé a descargarlas:")
-        print('     sqlite3 data/finance.db "DELETE FROM candles WHERE symbol=\\"TICKER\\";"')
-        print("     python update_data.py --seccion <seccion>")
+            print(f"   ⚠️  {a['symbol']} el {a['fecha']}: variación de {a['cambio']:.0f}% — posible split. Cómo corregirlo: borrá las velas de ese ticker y volvé a descargar con update_data.py.")
+        if len(alertas) > 15:
+            print(f"   ... y {len(alertas) - 15} más.")
 
     # 4. Resumen general de la base de datos
     stats = db.get_summary_stats()

@@ -438,9 +438,9 @@ def render_seccion(seccion):
     st.subheader("Detalle por activo")
     c1, c2 = st.columns(2)
     with c1:
-        sym_sel = st.selectbox("Activo", activos)
+        sym_sel = st.selectbox("Activo", activos, key=f"sym_{seccion}")
     with c2:
-        tf_sel = st.selectbox("Temporalidad", ALL_TF, index=ALL_TF.index("1D"))
+        tf_sel = st.selectbox("Temporalidad", ALL_TF, index=ALL_TF.index("1D"), key=f"tf_{seccion}")
     with st.spinner("Armando gráfico..."):
         grafico_detalle(sym_sel, tf_sel)
 
