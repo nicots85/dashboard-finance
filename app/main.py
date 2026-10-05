@@ -184,6 +184,35 @@ def obtener_fuentes():
 TF_MINUTOS = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1D": 1440}
 
 
+def ventana_conjunta(fecha=None):
+    """Ventana común BYMA–NYSE calculada con zonas horarias reales (se ajusta al cambio de DST de EE.UU.)."""
+    from zoneinfo import ZoneInfo
+
+    art = ZoneInfo("America/Argentina/Buenos_Aires")
+    ny = ZoneInfo("America/New_York")
+    if fecha is None:
+        fecha = pd.Timestamp.now(tz="UTC")
+
+    # Horarios locales de cada mercado
+    byma = (pd.Timestamp("11:00").time(), pd.Timestamp("17:00").time())
+    nyse = (pd.Timestamp("9:30").time(), pd.Timestamp("16:00").time())
+
+    dia = pd.Timestamp(fecha).normalize()
+    b_ini = pd.Timestamp.combine(dia.date(), byma[0]).tz_localize(art)
+    b_fin = pd.Timestamp.combine(dia.date(), byma[1]).tz_localize(art)
+    n_ini = pd.Timestamp.combine(dia.date(), nyse[0]).tz_localize(ny)
+    n_fin = pd.Timestamp.combine(dia.date(), nyse[1]).tz_localize(ny)
+
+    ini = max(b_ini, n_ini)
+    fin = min(b_fin, n_fin)
+    if ini >= fin:
+        return "sin solape hoy (usar cierre 1D)"
+    return (
+        f"{ini.tz_convert(art).strftime('%H:%M')}–{fin.tz_convert(art).strftime('%H:%M')} ART "
+        f"({ini.tz_convert(ny).strftime('%H:%M')}–{fin.tz_convert(ny).strftime('%H:%M')} NY)"
+    )
+
+
 def antiguedad(symbol, tf, ahora, seccion):
     """Texto 'hace X' con ⚠ si está más viejo de lo esperado; para cripto no se marca fin de semana."""
     try:
@@ -528,14 +557,14 @@ def mostrar_ccl(pares_cfg, equiv):
             c1.metric("CCL mediana (hoy)", f"${med.iloc[-1]:,.0f}")
             c2.metric("Z-score CCL", f"{z['z_atr']:+.2f}" if z["z_atr"] is not None else "-")
             c3.metric("Percentil histórico", f"{z['z_percentile']:.0f}%" if z["z_percentile"] is not None else "-")
+            st.info("El CCL es un tipo de cambio con tendencia. Un z-score alto indica que subió rápido respecto de su volatilidad reciente, no que vaya a revertir.")
             st.caption(f"Mediana calculada con {len(series)} empresas. Si una empresa se aleja >5% de la mediana, se resalta en naranja.")
 
     st.caption(
-        "Horarios comunes BYMA–NYSE para intradía: aprox. **11:00–17:00 hora Argentina** "
-        "(14:00–20:00 UTC; en horario de verano de EE.UU. el solape empieza antes). "
-        "Afuera de esa ventana, solo usar el cierre del día (1D). No usamos cointegración local/ADR "
+        "No usamos cointegración local/ADR "
         "porque el CCL depende del dólar entre mercados y no es estable. "
-        "Pendiente: brecha CCL/oficial BCRA (sin fuente gratuita simple configurada todavía)."
+        "Pendiente: brecha CCL/oficial BCRA (sin fuente gratuita simple configurada todavía). "
+        f"Ventana intradía común BYMA–NYSE hoy: {ventana_conjunta()}."
     )
 
 
