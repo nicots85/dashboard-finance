@@ -89,6 +89,15 @@ argentina:
     - local: "CEPU.BA"
       adr: "CEPU"
       nombre: "Central Puerto"
+  # Equivalencia de acciones por ADR (para CCL implícito).
+  # YPF: split 10:1 el 2026-08-04; la serie local YPFD.BA viene ajustada
+  # en nuestra base, por lo que se usa el ratio actual (10) para TODA la historia.
+  equivalencias:
+    GGAL: 10
+    YPF: 10
+    PAM: 25
+    BMA: 10
+    CEPU: 10
   # Lista plana de activos para el motor de descarga
   activos:
     - "GGAL.BA"

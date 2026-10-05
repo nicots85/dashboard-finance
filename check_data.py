@@ -42,6 +42,28 @@ def check_duplicates(db: DatabaseManager):
     return dups_candles, dups_fred
 
 
+def check_split_alerts(db: DatabaseManager):
+    """Alerta de posibles splits: variación de cierre a cierre > 40% en 1D."""
+    alertas = []
+    with db._get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT symbol FROM candles WHERE timeframe='1D'")
+        for (sym,) in cursor.fetchall():
+            cursor.execute(
+                "SELECT timestamp, close FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp",
+                (sym,),
+            )
+            rows = cursor.fetchall()
+            for i in range(1, len(rows)):
+                prev_ts, prev_c = rows[i - 1]
+                ts, c = rows[i]
+                if prev_c and prev_c > 0:
+                    cambio = abs(c / prev_c - 1)
+                    if cambio > 0.40:
+                        alertas.append({"symbol": sym, "fecha": str(ts)[:10], "cambio": cambio * 100})
+    return alertas
+
+
 def check_control_prices(db: DatabaseManager):
     """Obtiene el último precio de cierre guardado para los tres activos de control."""
     control_assets = [
@@ -180,6 +202,18 @@ def main():
         if len(outdated) > 10:
             print(f"      ... y {len(outdated) - 10} más.")
         print("   (Nota: Si es lunes o fin de semana largo, los mercados tradicionales reportan el último cierre hábil).")
+
+    # 3.b Alerta de posibles splits
+    print("\n3️⃣b  Alerta de posibles splits (variación de cierre > 40% en 1D):")
+    alertas = check_split_alerts(db)
+    if not alertas:
+        print("   ✅ No se detectaron variaciones sospechosas de un split.")
+    else:
+        for a in alertas[:15]:
+            print(f"   ⚠️  {a['symbol']} el {a['fecha']}: variación de {a['cambio']:.0f}% — posible split.")
+        print("   Cómo corregirlo: borrá las velas de ese activo y volvé a descargarlas:")
+        print('     sqlite3 data/finance.db "DELETE FROM candles WHERE symbol=\\"TICKER\\";"')
+        print("     python update_data.py --seccion <seccion>")
 
     # 4. Resumen general de la base de datos
     stats = db.get_summary_stats()
