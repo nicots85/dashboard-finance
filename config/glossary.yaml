@@ -1,0 +1,186 @@
+# Editable: solo textos de presentación, no parámetros ni reglas de cálculo.
+terminos:
+  ADR: "Certificado que cotiza en Estados Unidos y representa una cantidad de acciones de una empresa extranjera."
+  CCL: "Dólar contado con liquidación: tipo de cambio implícito al comparar la acción argentina con su certificado estadounidense."
+  ATR: "Rango habitual de una vela, incluyendo saltos frente al cierre anterior. El tablero usa 14 velas; no es un desvío estándar."
+  ADX: "Medida de fuerza del movimiento, sin indicar su dirección. El tablero usa 14 velas y compara con el nivel 20."
+  EMA: "Media exponencial: promedio que da más peso a los precios recientes. La media actual usa 50 velas."
+  VWAP: "Promedio de precios de una sesión, dando más peso a las velas con más volumen. Todavía no se muestra en este diseño."
+  z-score: "Distancia del precio a su media, expresada en una unidad de variación. En el gráfico actual se divide por ATR; no indica por sí sola que el precio vaya a volver."
+  z: "Abreviatura de z-score: distancia del precio o de una relación a su promedio."
+  p-valor: "Resultado de una prueba de relación. Un valor menor a 0,05 aporta evidencia bajo sus supuestos; no es la probabilidad de que el par funcione."
+  beta: "Factor que combina los precios de dos activos para medir su diferencia. Se estima con los datos del período elegido."
+  vida media: "Estimación de cuántas velas tardaría en reducirse a la mitad una separación del par; no es un plazo garantizado."
+  cointegración: "Relación en la que una combinación de dos precios tiende a conservar un equilibrio en el período estudiado. Puede romperse."
+  régimen: "Descripción de la dirección y la variación del precio: suba, baja o lateral, con volatilidad baja, normal o alta."
+  alineación: "Coincidencia de la dirección entre varias temporalidades. No es una orden de compra o venta."
+  tasa real: "Tasa de interés descontando el efecto de la inflación; la referencia actual usa bonos estadounidenses a 10 años."
+  curva de tasas: "Diferencia entre tasas de distintos plazos. La referencia actual resta la tasa de 2 años a la de 10 años."
+  VIX: "Indicador de la variación esperada del S&P 500 durante aproximadamente 30 días, estimada a partir de opciones."
+  spread high yield: "Tasa adicional que pagan bonos de mayor riesgo frente a una referencia de menor riesgo. Una suba puede mostrar mayor preocupación por ese riesgo."
+  ETF: "Fondo que cotiza como una acción y reúne varios activos; puede seguir un índice, sector o estilo de empresas."
+  futuro: "Contrato para negociar un activo en una fecha futura. La serie de Yahoo puede unir distintos contratos; su ajuste no está verificado."
+  alcista: "La media sube y el indicador de fuerza alcanza 20 o más. Describe dirección, no una señal de compra."
+  bajista: "La media no sube y el indicador de fuerza alcanza 20 o más. Describe dirección, no una señal de venta."
+  alcista (débil): "El precio está más de dos rangos habituales sobre su media y esta sube, pero la fuerza todavía está por debajo de 20."
+  bajista (débil): "El precio está más de dos rangos habituales bajo su media y esta baja, pero la fuerza todavía está por debajo de 20."
+  lateral: "La fuerza queda por debajo de 20 y no se cumple la excepción de precio muy separado de la media. No significa que el precio esté inmóvil."
+  sin datos: "No alcanza la información para calcular la dirección. Es distinto de lateral."
+  baja vol: "Volatilidad baja: el rango habitual está por debajo del percentil 25 de la ventana histórica usada."
+  normal vol: "Volatilidad normal: el rango habitual está entre los percentiles 25 y 75 de la ventana histórica usada."
+  alta vol: "Volatilidad alta: el rango habitual está por encima del percentil 75 de la ventana histórica usada."
+  volatilidad: "Cuánto y con qué amplitud cambia el precio; no indica si sube o baja."
+  "1m": "Una vela representa un minuto. El color muestra la dirección calculada en esa escala."
+  "5m": "Una vela representa cinco minutos. El color muestra la dirección calculada en esa escala."
+  "15m": "Una vela representa quince minutos. El color muestra la dirección calculada en esa escala."
+  "1h": "Una vela representa una hora. El último bloque de una rueda puede ser más corto."
+  "4h": "Una vela representa un bloque de cuatro horas. Actualmente se usa el horario UTC; falta compararlo con tu plataforma."
+  "1D": "Una vela representa un día o una sesión diaria del mercado, según el instrumento."
+  temporalidad: "Duración representada por cada vela: minutos, horas o un día."
+  activo: "Índice, acción, fondo, contrato o cripto que estás observando. El nombre acompaña siempre a su símbolo."
+  fuente: "Proveedor de los datos: Yahoo, Binance, Bybit o la base de referencias económicas FRED."
+  semáforo: "Verde: alcista; rojo: bajista; tonos débiles: dirección sin fuerza confirmada; gris: lateral; cuadrado pequeño: sin datos. No es una señal de entrada."
+  antigüedad: "Tiempo transcurrido desde la marca del último dato. Amarillo indica que supera el margen esperado del tablero actual."
+  dispersión: "Separación del precio frente a su promedio. No asegura que vuelva a ese promedio."
+  desvío estándar: "Medida de la separación de los precios respecto de su promedio dentro de un período. La tabla actual usa 50 cierres."
+  percentil: "Posición de un valor frente a su historia: percentil 80 significa que el 80% de los valores comparados fue igual o menor."
+  percentil del z: "Posición de la distancia actual por ATR frente a las últimas 250 velas con información suficiente."
+  spread: "Diferencia construida combinando dos precios. En los pares actuales se usan logaritmos y el factor beta."
+  estabilidad: "Porcentaje de ventanas recientes que pasó la prueba actual. Esas ventanas se solapan: no es una probabilidad de persistencia. La regla nueva queda para C2."
+  par: "Dos activos comparados entre sí; el orden importa para la prueba actual."
+  cointegrado: "La prueba actual dio evidencia de relación en la ventana evaluada. No garantiza que continúe."
+  no cointegrado: "La prueba actual no confirmó una relación en la ventana evaluada. No prueba que nunca exista."
+  no calculable: "No hay información válida suficiente o falló un cálculo. No debe interpretarse como un resultado negativo."
+  ratio: "Precio de un activo dividido por el de otro. Si sube, el primero gana terreno relativo frente al segundo."
+  fuerza relativa: "Desempeño de un activo frente a una referencia. Aquí se muestra el cociente entre sus precios."
+  mediana: "Valor del medio al ordenar los resultados; reduce el efecto de un valor muy alejado del resto."
+  CCL implícito: "Precio local multiplicado por las acciones que representa el certificado estadounidense, dividido por el precio de ese certificado."
+  equivalencia: "Cantidad de acciones locales representadas por un certificado estadounidense. Se lee de la configuración, no se estima con precios."
+  empresa: "Compañía cuya acción local se compara con su certificado estadounidense."
+  acción local: "Acción que cotiza en el mercado argentino y cuyo precio está expresado en pesos."
+  diferencia con mediana: "Cuánto se separa el CCL de una empresa del valor central de las cinco, expresado como porcentaje."
+  fecha de cálculo: "Momento en que el programa calculó el resultado. No es necesariamente la fecha de la última vela."
+  último dato usado: "Marca de tiempo del último dato incluido en el cálculo; en un par, el último dato que coincide entre ambos activos."
+  estado del dato: "Indica si el resultado se comprobó, necesita recalcularse o no pudo calcularse."
+  aviso: "Explicación de un dato ausente, una descarga parcial, una corrección o un resultado que requiere revisión."
+  fila: "Número de fila de la tabla; no es un indicador financiero."
+  cambio a un mes: "Diferencia del nivel actual frente al dato disponible de aproximadamente 30 días atrás."
+  sesión: "Horario de negociación de un mercado; no siempre coincide con un día de calendario."
+  vela: "Resumen de un intervalo: precio de apertura, máximo, mínimo y cierre."
+  UTC: "Hora universal usada para guardar datos, independiente de la hora local de tu computadora. Buenos Aires está tres horas detrás."
+  ART: "Hora de Buenos Aires y Argentina: tres horas detrás de UTC."
+  NY: "Nueva York; su diferencia con Buenos Aires cambia cuando Estados Unidos cambia la hora."
+  NYSE: "Bolsa de Nueva York; su rueda regular va de 09:30 a 16:00 hora de Nueva York."
+  BYMA: "Bolsas y Mercados Argentinos, mercado donde cotizan las acciones locales."
+  BCRA: "Banco Central de la República Argentina. El tipo de cambio oficial todavía no está incorporado."
+  FRED: "Base pública de series económicas de la Reserva Federal de San Luis, usada para tasas y referencias macro."
+  CME: "Mercado estadounidense de contratos de futuros; sus sesiones y vencimientos deben distinguirse del horario de acciones."
+  CFD: "Contrato ofrecido por un bróker para seguir el movimiento de un precio. Su cotización puede diferir del índice o futuro de referencia."
+  USDT: "Token que busca seguir el valor del dólar estadounidense; las criptos de esta base están cotizadas en ese token."
+  "S&P 500": "Índice que reúne grandes empresas estadounidenses; se usa como referencia del mercado."
+  "^NDX": "Índice Nasdaq 100: reúne grandes empresas no financieras que cotizan en Nasdaq. No es una acción negociada directamente."
+  "^GSPC": "Símbolo de Yahoo para el índice S&P 500, referencia de grandes empresas estadounidenses."
+  "^DJI": "Índice Dow Jones Industrial, que reúne 30 grandes empresas estadounidenses."
+  "^RUT": "Índice Russell 2000, referencia de pequeñas empresas estadounidenses."
+  "^GDAXI": "Índice DAX, referencia de grandes empresas de Alemania."
+  "^N225": "Índice Nikkei 225, referencia de 225 empresas japonesas."
+  "GC=F": "Serie de futuros de oro de Yahoo, cotizada en dólares por onza troy; puede cambiar el contrato representado."
+  "SI=F": "Serie de futuros de plata de Yahoo, cotizada en dólares por onza troy; puede cambiar el contrato representado."
+  "HG=F": "Serie de futuros de cobre de Yahoo, cotizada en dólares por libra."
+  "PL=F": "Serie de futuros de platino de Yahoo; tiene ceros de volumen y huecos en parte de la historia."
+  XLK: "Fondo que sigue el sector tecnológico de grandes empresas estadounidenses."
+  XLF: "Fondo que sigue bancos, seguros y otras empresas financieras estadounidenses."
+  XLE: "Fondo que sigue el sector energético estadounidense."
+  XLV: "Fondo que sigue empresas de salud estadounidenses."
+  XLY: "Fondo de consumo discrecional: bienes y servicios que las personas pueden postergar."
+  XLP: "Fondo de consumo básico: alimentos y otros bienes de uso cotidiano."
+  XLI: "Fondo que sigue empresas industriales estadounidenses."
+  XLB: "Fondo de materiales: químicos, metales y otras materias para la producción."
+  XLU: "Fondo de servicios públicos, como electricidad y agua."
+  XLRE: "Fondo que sigue el sector inmobiliario estadounidense."
+  XLC: "Fondo de comunicaciones, medios y servicios relacionados."
+  AAPL: "Acción de Apple, fabricante de dispositivos y proveedor de servicios tecnológicos."
+  MSFT: "Acción de Microsoft, empresa de software, servicios y computación en la nube."
+  NVDA: "Acción de Nvidia, fabricante de chips y tecnología de computación."
+  GOOGL: "Acción de Alphabet, compañía que incluye Google."
+  AMZN: "Acción de Amazon, empresa de comercio electrónico y servicios en la nube."
+  META: "Acción de Meta Platforms, compañía de redes sociales y otros servicios."
+  TSLA: "Acción de Tesla, fabricante de vehículos eléctricos y productos energéticos."
+  IWM: "Fondo que sigue el índice Russell 2000 de pequeñas empresas."
+  IJR: "Fondo que sigue el índice S&P SmallCap 600 de pequeñas empresas."
+  IWO: "Fondo de pequeñas empresas clasificadas como crecimiento, por sus perspectivas de expansión."
+  IWN: "Fondo de pequeñas empresas clasificadas como valor, según criterios de valoración del índice."
+  "BTC/USDT": "Precio de Bitcoin expresado en USDT; la fuente guardada es el exchange indicado en la tabla."
+  "ETH/USDT": "Precio de Ethereum expresado en USDT."
+  "SOL/USDT": "Precio de Solana expresado en USDT; sus pares diarios aún no alcanzan cinco bloques de 500 velas."
+  "XRP/USDT": "Precio del token XRP expresado en USDT."
+  "HYPE/USDT": "Precio del token de Hyperliquid expresado en USDT; la base actual usa Bybit."
+  "BNB/USDT": "Precio del token de BNB Chain expresado en USDT."
+  "GGAL.BA": "Acción local de Grupo Financiero Galicia, cotizada en pesos en Argentina."
+  GGAL: "Certificado estadounidense de Grupo Financiero Galicia; representa 10 acciones locales según la configuración."
+  "YPFD.BA": "Acción local de la empresa argentina de petróleo y gas. Su serie está ajustada por la división de acciones del 4 de agosto de 2026."
+  YPF: "Certificado estadounidense de la empresa argentina de petróleo y gas; la configuración usa equivalencia 10 para la historia ajustada de esta base."
+  "PAMP.BA": "Acción local de Pampa Energía, cotizada en pesos en Argentina."
+  PAM: "Certificado estadounidense de Pampa Energía; representa 25 acciones locales según la configuración."
+  "BMA.BA": "Acción local de Banco Macro, cotizada en pesos en Argentina."
+  BMA: "Certificado estadounidense de Banco Macro; representa 10 acciones locales según la configuración."
+  "CEPU.BA": "Acción local de Central Puerto, cotizada en pesos en Argentina."
+  CEPU: "Certificado estadounidense de Central Puerto; representa 10 acciones locales según la configuración."
+  DGS10: "Serie económica de la tasa nominal del Tesoro estadounidense a 10 años, expresada como porcentaje anual."
+  DGS2: "Serie económica de la tasa nominal del Tesoro estadounidense a 2 años, expresada como porcentaje anual."
+  T10Y2Y: "Serie económica que resta la tasa a 2 años de la tasa a 10 años, en puntos porcentuales."
+  DFII10: "Serie de rendimiento real de bonos estadounidenses a 10 años protegidos frente a la inflación."
+  VIXCLS: "Serie de cierre del indicador VIX de volatilidad esperada del S&P 500."
+  DTWEXBGS: "Índice del dólar frente a una canasta amplia de monedas; no es el tipo de cambio peso/dólar."
+  BAMLH0A0HYM2: "Diferencia de tasas de bonos corporativos estadounidenses de mayor riesgo frente a su referencia; se expresa en puntos porcentuales."
+
+comunes:
+  - activo
+  - fuente
+  - régimen
+  - semáforo
+  - alineación
+  - temporalidad
+  - vela
+  - antigüedad
+  - alcista
+  - bajista
+  - alcista (débil)
+  - bajista (débil)
+  - lateral
+  - sin datos
+  - baja vol
+  - normal vol
+  - alta vol
+  - volatilidad
+  - ATR
+  - ADX
+  - EMA
+  - VWAP
+  - z-score
+  - z
+  - desvío estándar
+  - percentil
+  - percentil del z
+  - dispersión
+  - fecha de cálculo
+  - último dato usado
+  - estado del dato
+  - no calculable
+  - aviso
+  - UTC
+  - "1m"
+  - "5m"
+  - "15m"
+  - "1h"
+  - "4h"
+  - "1D"
+  - FRED
+  - cambio a un mes
+secciones:
+  indices: [par, cointegración, cointegrado, no cointegrado, p-valor, beta, spread, vida media, estabilidad, tasa real, curva de tasas, VIX, spread high yield, CFD]
+  metales: [par, cointegración, cointegrado, no cointegrado, p-valor, beta, spread, vida media, estabilidad, futuro, ratio, tasa real, CME]
+  equity: [par, cointegración, cointegrado, no cointegrado, p-valor, beta, spread, vida media, estabilidad, ETF, curva de tasas, spread high yield]
+  smallcaps: [ETF, ratio, fuerza relativa, spread high yield]
+  cripto: [par, cointegración, cointegrado, no cointegrado, p-valor, beta, spread, vida media, estabilidad, ratio, USDT, VIX]
+  argentina: [ADR, CCL, CCL implícito, empresa, acción local, equivalencia, mediana, diferencia con mediana, ratio, BYMA, NYSE, ART, NY, BCRA]

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 app/main.py — Interfaz Streamlit de dashboard-finance.
-Pestaña completa: ÍNDICES. Las demás secciones quedan "En construcción"
-y reutilizan la misma función genérica render_seccion().
+Las seis pestañas reutilizan render_seccion(). C1 agrega nombres y ayudas,
+conservando el diseño, los datos y los cálculos.
 
 Correr:
   Mac/Linux:   streamlit run app/main.py
@@ -26,6 +26,10 @@ sys.path.insert(0, ROOT)
 
 from src.data import DatabaseManager  # noqa: E402
 from src.data.db_manager import DEFAULT_DB_PATH  # noqa: E402
+from src.presentation import (  # noqa: E402
+    asset_label, pair_label, entity_label, definition, help_text,
+    explain_symbols, rich_text, section_terms, column_specs, TF_LABELS, refresh_catalog,
+)
 from src.calc import (  # noqa: E402
     compute_market_regime_history,
     compute_zscore_history,
@@ -56,22 +60,36 @@ SECTION_MACRO = {
 }
 
 NOTAS_BASE = """
-- **Z-score alto (|z| > 2)** indica que el precio está *estirado* respecto a su promedio,
-  **no** una señal de reversión: en tendencias fuertes puede persistir varios días.
-- **Régimen "(débil)"**: la tendencia es clara por momentum pero el ADX todavía no la confirma.
-- **Cointegración**: que dos activos se muevan juntos hoy no garantiza que sigan haciéndolo; puede romperse.
-- **Datos gratuitos**: yfinance y Binance tienen retraso de minutos.
-- **Intradía de índices**: Yahoo guarda poco historial (1m ~7 días, 5m/15m ~60 días).
+- **Precio lejos de su promedio:** no significa que vaya a volver pronto. Una suba o baja fuerte puede mantenerlo lejos varios días.
+- **Dirección débil:** el precio está muy separado de su promedio, pero la medida de fuerza todavía no confirma una tendencia fuerte.
+- **Colores:** verde significa dirección de suba; rojo, de baja; gris, lateral. El cuadrado pequeño significa que faltan datos. Ninguno es una orden de compra o venta.
+- **Dos activos relacionados:** que hayan conservado una relación en el período estudiado no asegura que siga funcionando.
+- **Fecha del dato:** las fuentes gratuitas pueden llegar con retraso. Compará siempre el último dato usado con la fecha de tu plataforma.
 """
 
 NOTAS_SECCION = {
-    "indices": NOTAS_BASE,
-    "metales": NOTAS_BASE + "\n- **Oro/Plata**: cuando el ratio sube, el oro gana terreno frente a la plata (y viceversa). Importa el *z-score del ratio*, no el nivel absoluto.",
-    "cripto": NOTAS_BASE + "\n- **Cripto es 24/7**: no se marca desactualizado por fines de semana. **ETH/BTC y SOL/BTC** altos = altcoin dominando; muy bajos = BTC dominando.",
-    "equity": NOTAS_BASE,
-    "smallcaps": NOTAS_BASE,
-    "argentina": NOTAS_BASE + "\n- **CCL implícito**: depende del dólar CCL entre mercados; los horarios de BYMA y NYSE no coinciden del todo, por lo que los valores intradía deben leerse con cautela.",
+    "indices": NOTAS_BASE + "\n- **Historia corta:** Yahoo entrega aproximadamente siete días de velas de un minuto y sesenta días de cinco o quince minutos. Lo ya guardado se conserva.",
+    "metales": NOTAS_BASE + "\n- **Oro frente a plata:** si el cociente sube, el oro gana terreno frente a la plata. Es una comparación entre ambos, no una señal automática.\n- **Contratos:** Yahoo une futuros; no se pudo verificar cómo ajusta sus cambios de contrato.",
+    "cripto": NOTAS_BASE + "\n- **Todos los días:** las criptos cotizan también los fines de semana; un dato antiguo se marca aunque sea sábado o domingo.\n- **Comparación con Bitcoin:** si sube el cociente de Ethereum o Solana frente a Bitcoin, la primera gana terreno relativo. No es la participación en el valor total del mercado.",
+    "equity": NOTAS_BASE + "\n- **Mapa de colores:** muestra separación del promedio. Un valor alto no significa por sí solo que sea el mejor sector para comprar.",
+    "smallcaps": NOTAS_BASE + "\n- **Pequeñas frente a grandes empresas:** un cociente creciente del fondo de pequeñas empresas frente al S&P 500 indica mejor desempeño relativo del primero.",
+    "argentina": NOTAS_BASE + "\n- **Dólar implícito:** depende de los precios de la acción local y su certificado estadounidense; los horarios de Buenos Aires y Nueva York no coinciden por completo.\n- **El CCL tiene tendencia:** un valor alto de distancia a su media indica que subió rápido, no que vaya a bajar.",
 }
+
+
+def caption_help(text):
+    st.caption(rich_text(explain_symbols(text)), unsafe_allow_html=True)
+
+
+def dataframe_help(data, context=None, **kwargs):
+    """Todos los encabezados pasan por el mismo catálogo de ayudas."""
+    columns = data.columns if isinstance(data, pd.DataFrame) else data.data.columns
+    config = {key: st.column_config.Column(**spec) for key, spec in column_specs(columns, context).items()}
+    return st.dataframe(data, column_config=config, **kwargs)
+
+
+def metric_help(label, value, delta=None, terms=()):
+    return st.metric(label, value, delta, help=help_text(*terms))
 
 
 # ----------------------------------------------------------------------
@@ -147,8 +165,8 @@ def obtener_cointegracion(seccion, pares):
         for _, r in df.iterrows():
             calculable = r["calc_status"] != "no_calculable" and pd.notna(r["p_value"])
             rows.append({
-                "Par": p.get("nombre", key),
-                "TF": r["timeframe"],
+                "Par": pair_label(p["y"], p["x"]),
+                "TF": TF_LABELS[r["timeframe"]],
                 "Cointegrado": "No calculable" if not calculable else "✅ cointegrado" if r["is_cointegrated"] else "❌ no cointegrado",
                 "p-valor": r["p_value"],
                 "Beta": r["beta"],
@@ -292,7 +310,7 @@ def grafico_detalle(symbol, tf):
     if tf == "4h":
         with open(os.path.join(ROOT, "config", "operations.yaml"), encoding="utf-8") as file:
             ops = yaml.safe_load(file)
-        st.caption("Horario de velas 4h: " + ops["platform_4h"]["current_label"])
+        caption_help("Horario de velas de cuatro horas: " + ops["platform_4h"]["current_label"])
     df = obtener_historia(symbol, tf)
     if df.empty or len(df) < 60:
         st.warning("No hay suficientes datos para este activo/temporalidad.")
@@ -302,8 +320,10 @@ def grafico_detalle(symbol, tf):
 
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3],
-        vertical_spacing=0.05, subplot_titles=(f"{symbol} {tf} — precio y EMA 50", "Z-score (ATR)"),
+        vertical_spacing=0.05, subplot_titles=(f"{asset_label(symbol)} — {TF_LABELS[tf]}: precio y EMA de 50 velas", "Z-score: distancia a la media por ATR"),
     )
+    fig.layout.annotations[0].hovertext = help_text(symbol, tf, "EMA")
+    fig.layout.annotations[1].hovertext = help_text("z-score", "ATR")
 
     # Fondo por régimen
     color_reg = {"alcista": "rgba(46,204,113,0.15)", "bajista": "rgba(231,76,60,0.15)",
@@ -323,12 +343,15 @@ def grafico_detalle(symbol, tf):
 
     fig.add_trace(go.Candlestick(
         x=df["timestamp"], open=df["open"], high=df["high"], low=df["low"], close=df["close"],
-        name="Precio",
+        name=asset_label(symbol), hoverinfo="text",
+        hovertext=[f"{asset_label(symbol)}<br>{row.timestamp}<br>Apertura: {row.open:,.2f}<br>Máximo: {row.high:,.2f}<br>Mínimo: {row.low:,.2f}<br>Cierre: {row.close:,.2f}" for row in df.itertuples()],
     ), row=1, col=1)
     fig.add_trace(go.Scatter(x=df["timestamp"], y=hist["ema"], name="EMA 50",
-                             line=dict(color="orange", width=1.5)), row=1, col=1)
+                             line=dict(color="orange", width=1.5),
+                             hovertemplate="Media exponencial (EMA) de 50 velas: %{y:,.2f}<br>" + definition("EMA") + "<extra></extra>"), row=1, col=1)
     fig.add_trace(go.Scatter(x=df["timestamp"], y=z["z_atr"], name="Z-score",
-                             line=dict(color="purple", width=1.5)), row=2, col=1)
+                             line=dict(color="purple", width=1.5),
+                             hovertemplate="Distancia a la media: %{y:+.2f} rangos habituales (ATR)<br>" + definition("z-score") + "<extra></extra>"), row=2, col=1)
     for nivel in (2, -2):
         fig.add_hline(y=nivel, line_dash="dash", line_color="red", row=2, col=1)
     fig.add_hline(y=0, line_color="gray", row=2, col=1)
@@ -356,15 +379,13 @@ def render_seccion(seccion):
     if not macro.empty:
         if macro_ids:
             macro = macro[macro.index.isin(macro_ids)]
-        st.subheader("Referencias macro")
-        nombres = {"DGS10": "Tasa 10 años", "T10Y2Y": "Curva 10y-2y", "DFII10": "Tasa real 10y",
-                   "VIXCLS": "VIX", "DTWEXBGS": "Dólar", "BAMLH0A0HYM2": "Spread HY"}
+        st.subheader("Referencias económicas", help=help_text("FRED", "cambio a un mes", "percentil"))
         cols = st.columns(min(len(macro), 7))
         for i, (sid, row) in enumerate(macro.iterrows()):
             with cols[i % len(cols)]:
                 delta = f"{row['change_1m']:+.2f} ({row['pct_change_1m']:+.1f}%)"
-                st.metric(nombres.get(sid, sid), f"{row['current_value']:.2f}", delta)
-                st.caption(f"Percentil 10A: {row['percentile']:.0f}%")
+                metric_help(asset_label(sid), f"{row['current_value']:.2f}", delta, terms=(sid, "cambio a un mes", "percentil"))
+                caption_help(f"Percentil histórico (hasta 10 años): {row['percentile']:.0f}%")
 
     # b) Tabla principal
     st.subheader("Activos")
@@ -380,9 +401,9 @@ def render_seccion(seccion):
         regs = reg[(reg.symbol == sym) & (reg.timeframe == "1D")]
         zs = zdf[(zdf.symbol == sym) & (zdf.timeframe == "1D")]
         sem = semaforos.get(sym, {}).get("trends", {})
-        fila = {"Activo": sym, "Fuente": fuentes.get(sym, "-")}
+        fila = {"Activo": asset_label(sym), "Fuente": fuentes.get(sym, "-")}
         fila["Régimen (1D)"] = regs["regime"].iloc[0] if not regs.empty else "sin datos"
-        edad_fila = {"Activo": sym}
+        edad_fila = {"Activo": asset_label(sym)}
         for tf in ALL_TF:
             fila[tf] = EMOJI_MAP.get(sem.get(tf, "sin datos"), "▫️")
             edad_fila[tf] = antiguedad(sym, tf, ahora, seccion)
@@ -405,32 +426,32 @@ def render_seccion(seccion):
         .map(resaltar, subset=["Z-ATR", "Z-desvío"])
         .format({"Z-ATR": "{:+.2f}", "Z-desvío": "{:+.2f}", "Percentil Z": "{:.0f}%"}, na_rep="-")
     )
-    st.dataframe(styled, use_container_width=True)
-    st.caption("▫️ = sin datos (la fuente gratuita no tiene historia para ese activo/temporalidad).")
+    dataframe_help(styled, use_container_width=True)
+    caption_help("▫️ = sin datos: la fuente no entrega suficiente historia para calcular ese activo en esa temporalidad.")
 
     # Antigüedad del dato por temporalidad (amarillo = desactualizado)
-    st.caption("Antigüedad del dato por temporalidad (amarillo = desactualizado):")
+    caption_help("Antigüedad del dato por temporalidad (amarillo = desactualizado):")
     df_edad = pd.DataFrame(filas_edad)
 
     def viejo(v):
         return "background-color: #fff3b0" if v and v.startswith("⚠") else ""
 
-    st.dataframe(df_edad.style.map(viejo), use_container_width=True, hide_index=True)
+    dataframe_help(df_edad.style.map(viejo), context="age", use_container_width=True, hide_index=True)
 
     # c) Cointegración / CCL implícito (según sección)
     if seccion == "argentina":
-        st.subheader("CCL implícito por empresa")
+        st.subheader("Dólar implícito por empresa (CCL)", help=help_text("CCL", "CCL implícito", "ADR"))
         pares_cfg = assets_cfg[seccion].get("pares", [])
         equiv = assets_cfg[seccion].get("equivalencias", {})
         mostrar_ccl(pares_cfg, equiv)
     else:
-        st.subheader("Cointegración de pares")
+        st.subheader("Cointegración de pares", help=help_text("cointegración", "par"))
         if pares:
             coint = obtener_cointegracion(seccion, pares)
             if coint.empty:
                 st.info("Sin resultados de cointegración guardados aún.")
             else:
-                st.dataframe(
+                dataframe_help(
                     coint.style.format({"p-valor": "{:.4f}", "Beta": "{:.2f}",
                                         "Vida media (velas)": "{:.1f}", "Estabilidad %": "{:.0f}%"}, na_rep="-"),
                     use_container_width=True,
@@ -438,24 +459,24 @@ def render_seccion(seccion):
 
     # c.b) Ratios con z-score (según sección)
     if seccion == "metales":
-        st.subheader("Ratio Oro/Plata (GC=F / SI=F)")
+        st.subheader("Ratio: " + pair_label("GC=F", "SI=F"), help=help_text("ratio", "GC=F", "SI=F"))
         r = ratio_zscore("GC=F", "SI=F")
-        mostrar_ratio(r, "Oro/Plata")
+        mostrar_ratio(r, pair_label("GC=F", "SI=F"), ("GC=F", "SI=F"))
     elif seccion == "cripto":
-        st.subheader("Dominancia relativa (ratio vs BTC)")
+        st.subheader("Comparación relativa frente a Bitcoin (BTC/USDT)", help=help_text("ratio", "BTC/USDT"))
         c1, c2 = st.columns(2)
         with c1:
-            mostrar_ratio(ratio_zscore("ETH/USDT", "BTC/USDT"), "ETH/BTC")
+            mostrar_ratio(ratio_zscore("ETH/USDT", "BTC/USDT"), pair_label("ETH/USDT", "BTC/USDT"), ("ETH/USDT", "BTC/USDT"))
         with c2:
-            mostrar_ratio(ratio_zscore("SOL/USDT", "BTC/USDT"), "SOL/BTC")
+            mostrar_ratio(ratio_zscore("SOL/USDT", "BTC/USDT"), pair_label("SOL/USDT", "BTC/USDT"), ("SOL/USDT", "BTC/USDT"))
     elif seccion == "smallcaps":
-        st.subheader("Fuerza relativa: IWM vs ^GSPC")
-        mostrar_ratio(ratio_zscore("IWM", "^GSPC"), "IWM/^GSPC")
+        st.subheader("Fuerza relativa: " + pair_label("IWM", "^GSPC"), help=help_text("fuerza relativa", "IWM", "^GSPC"))
+        mostrar_ratio(ratio_zscore("IWM", "^GSPC"), pair_label("IWM", "^GSPC"), ("IWM", "^GSPC"))
     elif seccion == "equity":
-        st.subheader("Mapa de calor: z-score (ATR) por temporalidad")
+        st.subheader("Mapa de colores: z-score por rango (ATR)", help=help_text("z-score", "ATR", "temporalidad"))
         z_rows = []
         for sym in activos:
-            fila = {"Activo": sym}
+            fila = {"Activo": asset_label(sym)}
             for tf in ALL_TF:
                 zz = zdf[(zdf.symbol == sym) & (zdf.timeframe == tf)]
                 fila[tf] = float(zz["z_atr"].iloc[0]) if not zz.empty else None
@@ -473,21 +494,23 @@ def render_seccion(seccion):
             labels=dict(color="Z-ATR"),
         )
         fig.update_layout(height=max(300, 28 * len(df_heat)))
+        fig.update_traces(hovertemplate="%{y}<br>Temporalidad: %{x}<br>Distancia: %{z:+.2f} rangos habituales (ATR)<br>" + definition("z-score") + "<extra></extra>")
+        fig.update_xaxes(tickvals=ALL_TF, ticktext=[TF_LABELS[tf] for tf in ALL_TF])
         st.plotly_chart(fig, use_container_width=True)
-        st.caption("Verde = extendido al alza (líder), rojo = débil (rezagado). Ordenado por z de 1D.")
+        caption_help("Verde = precio por encima de su media; rojo = por debajo. No equivale a una recomendación. El orden usa la distancia del día.")
 
     # d) Detalle por activo
     st.subheader("Detalle por activo")
     c1, c2 = st.columns(2)
     with c1:
-        sym_sel = st.selectbox("Activo", activos, key=f"sym_{seccion}")
+        sym_sel = st.selectbox("Activo", activos, format_func=asset_label, help=help_text("activo", *activos), key=f"sym_{seccion}")
     with c2:
-        tf_sel = st.selectbox("Temporalidad", ALL_TF, index=ALL_TF.index("1D"), key=f"tf_{seccion}")
+        tf_sel = st.selectbox("Temporalidad", ALL_TF, format_func=lambda tf: TF_LABELS[tf], help=help_text("temporalidad", *ALL_TF), index=ALL_TF.index("1D"), key=f"tf_{seccion}")
     with st.spinner("Armando gráfico..."):
         grafico_detalle(sym_sel, tf_sel)
 
     # f) Fecha de actualización
-    st.caption(f"Última actualización de datos: {ultima_actualizacion()}")
+    caption_help(f"Última recepción guardada de datos (UTC): {ultima_actualizacion()}")
     with st.expander("Fechas de cálculo y datos usados"):
         pair_keys = {f"{p['y']}/{p['x']}" for p in pares}
         keys = set(activos) | pair_keys | set(SECTION_MACRO.get(seccion, []))
@@ -496,13 +519,22 @@ def render_seccion(seccion):
             names = {"asset": "Activo o par", "timeframe": "Temporalidad", "calculated_at": "Calculado (UTC)",
                      "last_data_timestamp": "Último dato usado (UTC)", "status": "Estado", "reason": "Aviso"}
             dates = pd.DataFrame(health).drop(columns=["table"]).rename(columns=names)
+            dates["Activo o par"] = dates["Activo o par"].map(entity_label)
+            dates["Temporalidad"] = dates["Temporalidad"].map(TF_LABELS)
             dates["Estado"] = dates["Estado"].map({"ok": "Comprobado", "stale": "Desactualizado",
                 "untracked": "Recalcular para comprobar", "no_calculable": "No calculable"})
-            st.dataframe(dates, use_container_width=True, hide_index=True)
+            dataframe_help(dates, use_container_width=True, hide_index=True)
 
     # g) Cómo leer esto (adaptado a la sección)
     with st.expander("Cómo leer esto"):
-        st.markdown(NOTAS_SECCION.get(seccion, NOTAS_BASE))
+        st.markdown(rich_text(NOTAS_SECCION.get(seccion, NOTAS_BASE)), unsafe_allow_html=True)
+    with st.expander("Glosario"):
+        for term in section_terms(seccion, SECTION_MACRO.get(seccion, [])):
+            try:
+                label = asset_label(term)
+            except KeyError:
+                label = term
+            st.markdown("**" + rich_text(label) + "** — " + rich_text(definition(term)), unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=900)
@@ -540,7 +572,7 @@ def mostrar_ccl(pares_cfg, equiv):
         s = ccl_1d.get(p["nombre"], pd.Series(dtype=float))
         val = float(s.loc[hoy]) if hoy in s.index else (float(s.iloc[-1]) if not s.empty else None)
         serie_hoy.append(val)
-        filas.append({"Empresa": p["nombre"], "Local": p["local"], "ADR": p["adr"],
+        filas.append({"Empresa": asset_label(p["local"]), "Local": asset_label(p["local"]), "ADR": asset_label(p["adr"]),
                       "Equiv.": equiv.get(p["adr"]), "CCL implícito": val})
 
     df = pd.DataFrame(filas)
@@ -556,7 +588,7 @@ def mostrar_ccl(pares_cfg, equiv):
             return ""
 
     styled = styled.map(lejos, subset=["% vs mediana"])
-    st.dataframe(styled, use_container_width=True)
+    dataframe_help(styled, use_container_width=True)
 
     # Mediana histórica + z-score
     series = [s.rename(k) for k, s in ccl_1d.items() if not s.empty]
@@ -572,13 +604,16 @@ def mostrar_ccl(pares_cfg, equiv):
             dfp["timestamp"] = pd.to_datetime(dfp["timestamp"], utc=True)
             z = get_latest_zscore(dfp)
             c1, c2, c3 = st.columns(3)
-            c1.metric("CCL mediana (hoy)", f"${med.iloc[-1]:,.0f}")
-            c2.metric("Z-score CCL", f"{z['z_atr']:+.2f}" if z["z_atr"] is not None else "-")
-            c3.metric("Percentil histórico", f"{z['z_percentile']:.0f}%" if z["z_percentile"] is not None else "-")
+            with c1:
+                metric_help("Dólar implícito mediano (CCL)", f"${med.iloc[-1]:,.0f}", terms=("CCL", "mediana"))
+            with c2:
+                metric_help("Distancia del CCL a su media (z-score)", f"{z['z_atr']:+.2f}" if z["z_atr"] is not None else "-", terms=("CCL", "z-score", "ATR"))
+            with c3:
+                metric_help("Percentil histórico", f"{z['z_percentile']:.0f}%" if z["z_percentile"] is not None else "-", terms=("percentil del z",))
             st.info("El CCL es un tipo de cambio con tendencia. Un z-score alto indica que subió rápido respecto de su volatilidad reciente, no que vaya a revertir.")
-            st.caption(f"Mediana calculada con {len(series)} empresas. Si una empresa se aleja >5% de la mediana, se resalta en naranja.")
+            caption_help(f"Mediana calculada con {len(series)} empresas. Si una empresa se aleja más del 5% de la mediana, se resalta en naranja.")
 
-    st.caption(
+    caption_help(
         "No usamos cointegración local/ADR "
         "porque el CCL depende del dólar entre mercados y no es estable. "
         "Pendiente: brecha CCL/oficial BCRA (sin fuente gratuita simple configurada todavía). "
@@ -586,14 +621,14 @@ def mostrar_ccl(pares_cfg, equiv):
     )
 
 
-def mostrar_ratio(r, nombre):
+def mostrar_ratio(r, nombre, symbols=()):
     if r is None:
         st.info(f"Sin datos suficientes para {nombre}.")
         return
     z = r["z_atr"]
-    st.metric(nombre, f"{r['ratio']:.4f}", f"z = {z:+.2f}" if z is not None else "z = -")
+    metric_help(nombre, f"{r['ratio']:.4f}", f"z = {z:+.2f}" if z is not None else "z = -", terms=("ratio", "z-score", *symbols))
     if r["percentile"] is not None:
-        st.caption(f"Percentil histórico del z: {r['percentile']:.0f}%")
+        caption_help(f"Percentil histórico del z-score: {r['percentile']:.0f}%")
 
 
 def render_en_construccion():
@@ -604,6 +639,7 @@ def render_en_construccion():
 # App principal
 # ----------------------------------------------------------------------
 def main():
+    refresh_catalog()
     st.title("📊 Dashboard Financiero")
     db = DatabaseManager(DB_PATH)
     signature = db.data_signature()
@@ -621,7 +657,7 @@ def main():
     if notices:
         with st.expander(f"Avisos de descargas y datos ({len(notices)})"):
             for notice in notices[:30]:
-                st.write(f"{notice['asset']} · {notice['timeframe']}: {notice['message']}")
+                st.markdown(rich_text(entity_label(notice['asset']) + " · " + TF_LABELS.get(notice['timeframe'], notice['timeframe']) + ": " + explain_symbols(notice['message'])), unsafe_allow_html=True)
             if len(notices) > 30:
                 st.caption("El registro completo puede consultarse con check_data.py.")
 
@@ -630,8 +666,8 @@ def main():
         st.session_state.tf_update = None
 
     c_btn, c_btn2 = st.columns(2)
-    correr_full = c_btn.button("🔄 Actualizar datos (todas las temporalidades)")
-    correr_rapido = c_btn2.button("⚡ Actualización rápida (solo 1h y 1D)")
+    correr_full = c_btn.button("🔄 Actualizar datos (todas las temporalidades)", help=help_text("temporalidad", *ALL_TF))
+    correr_rapido = c_btn2.button("⚡ Actualización rápida (solo una hora y diario)", help=help_text("1h", "1D"))
 
     if correr_full or correr_rapido:
         target_tfs = "1m,5m,15m,1h,4h,1D" if correr_full else "1h,1D"

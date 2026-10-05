@@ -155,6 +155,19 @@ Todavía no se activó una tarea en esta entrega.
 **[Instrucciones paso a paso para Mac, Windows y restauración](docs/C0.md)**
 · **[Referencias académicas verificadas y pendientes](docs/references.md)**
 
+## Nombres y glosario (C1)
+
+Las seis pestañas muestran nombres completos y ayudas. Los nombres se editan
+en `config/assets.yaml` y las definiciones en `config/glossary.yaml`.
+Cada pestaña tiene un desplegable **Glosario** y textos **Cómo leer esto**.
+
+```bash
+python test_c1.py
+```
+
+**[Qué comparar visualmente y aclaraciones sobre C0/iCloud](docs/C1.md)**
+· **[Pendientes para C2, incluido el caso Solana](docs/pending.md)**
+
 ---
 
 ## Git: guardar y sincronizar cambios

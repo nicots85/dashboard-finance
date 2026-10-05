@@ -14,6 +14,13 @@ indices:
     - "^RUT"     # Russell 2000
     - "^GDAXI"   # DAX (Alemania)
     - "^N225"    # Nikkei 225 (Japón)
+  nombres:
+    "^NDX": "Nasdaq 100"
+    "^GSPC": "S&P 500"
+    "^DJI": "Dow Jones Industrial"
+    "^RUT": "Russell 2000"
+    "^GDAXI": "DAX de Alemania"
+    "^N225": "Nikkei 225 de Japón"
 
 metales:
   fuente: yahoo
@@ -23,6 +30,11 @@ metales:
     - "SI=F"     # Plata (Silver Futures)
     - "HG=F"     # Cobre (Copper Futures)
     - "PL=F"     # Platino (Platinum Futures)
+  nombres:
+    "GC=F": "Oro — futuro"
+    "SI=F": "Plata — futuro"
+    "HG=F": "Cobre — futuro"
+    "PL=F": "Platino — futuro"
 
 equity:
   fuente: yahoo
@@ -48,6 +60,25 @@ equity:
     - "AMZN"     # Amazon
     - "META"     # Meta (Facebook)
     - "TSLA"     # Tesla
+  nombres:
+    XLK: "Sector tecnología — fondo cotizado"
+    XLF: "Sector financiero — fondo cotizado"
+    XLE: "Sector energía — fondo cotizado"
+    XLV: "Sector salud — fondo cotizado"
+    XLY: "Sector consumo discrecional — fondo cotizado"
+    XLP: "Sector consumo básico — fondo cotizado"
+    XLI: "Sector industrial — fondo cotizado"
+    XLB: "Sector materiales — fondo cotizado"
+    XLU: "Sector servicios públicos — fondo cotizado"
+    XLRE: "Sector inmobiliario — fondo cotizado"
+    XLC: "Sector comunicaciones — fondo cotizado"
+    AAPL: "Apple"
+    MSFT: "Microsoft"
+    NVDA: "Nvidia"
+    GOOGL: "Alphabet — Google"
+    AMZN: "Amazon"
+    META: "Meta Platforms"
+    TSLA: "Tesla"
 
 smallcaps:
   fuente: yahoo
@@ -57,6 +88,11 @@ smallcaps:
     - "IJR"      # iShares Core S&P Small-Cap ETF
     - "IWO"      # iShares Russell 2000 Growth ETF
     - "IWN"      # iShares Russell 2000 Value ETF
+  nombres:
+    IWM: "Pequeñas empresas Russell 2000 — fondo cotizado"
+    IJR: "Pequeñas empresas S&P 600 — fondo cotizado"
+    IWO: "Pequeñas empresas de crecimiento — fondo cotizado"
+    IWN: "Pequeñas empresas de valor — fondo cotizado"
 
 cripto:
   fuente: ccxt
@@ -68,6 +104,13 @@ cripto:
     - "XRP/USDT"
     - "HYPE/USDT"
     - "BNB/USDT"
+  nombres:
+    "BTC/USDT": "Bitcoin"
+    "ETH/USDT": "Ethereum"
+    "SOL/USDT": "Solana"
+    "XRP/USDT": "XRP de la red XRP Ledger"
+    "HYPE/USDT": "Hyperliquid"
+    "BNB/USDT": "BNB de la red BNB Chain"
 
 argentina:
   fuente: yahoo
@@ -110,6 +153,17 @@ argentina:
     - "BMA"
     - "CEPU.BA"
     - "CEPU"
+  nombres:
+    "GGAL.BA": "Grupo Financiero Galicia — acción local"
+    GGAL: "Grupo Financiero Galicia — certificado estadounidense"
+    "YPFD.BA": "YPF — acción local"
+    YPF: "YPF — certificado estadounidense"
+    "PAMP.BA": "Pampa Energía — acción local"
+    PAM: "Pampa Energía — certificado estadounidense"
+    "BMA.BA": "Banco Macro — acción local"
+    BMA: "Banco Macro — certificado estadounidense"
+    "CEPU.BA": "Central Puerto — acción local"
+    CEPU: "Central Puerto — certificado estadounidense"
 
 referencias:
   fuente: fred
@@ -122,3 +176,11 @@ referencias:
     - "VIXCLS"        # Índice de Volatilidad CBOE (VIX)
     - "DTWEXBGS"      # Índice del Dólar estadounidense (Nominal Broad U.S. Dollar Index)
     - "BAMLH0A0HYM2"  # Spread High Yield de Bonos Corporativos de EE.UU. (ICE BofA)
+  nombres:
+    DGS10: "Tasa del Tesoro estadounidense a 10 años"
+    DGS2: "Tasa del Tesoro estadounidense a 2 años"
+    T10Y2Y: "Curva de tasas — diferencia entre 10 y 2 años"
+    DFII10: "Tasa real estadounidense a 10 años"
+    VIXCLS: "Volatilidad esperada del S&P 500 — VIX"
+    DTWEXBGS: "Índice amplio del dólar estadounidense"
+    BAMLH0A0HYM2: "Diferencia de tasas de bonos de mayor riesgo — spread high yield"
