@@ -114,7 +114,7 @@ streamlit run app/main.py
 streamlit run app/main.py
 ```
 
-Se abre solo en tu navegador (http://localhost:8501). La pestaña **Índices** está completa; el resto dice "En construcción". Desde la app podés actualizar datos con el botón "🔄 Actualizar datos".
+Se abre solo en tu navegador (http://localhost:8501). Las seis pestañas están activas. Desde la app podés actualizar las seis temporalidades o usar la actualización rápida de 1h/1D.
 
 ### Actualizar datos manualmente (sin abrir la app)
 
@@ -127,7 +127,33 @@ python run_calc.py --tf 1m,5m,15m,1h,4h,1D       # recalcula régimen, z-score, 
 
 ```bash
 python test_synthetic.py
+python test_c0.py          # Protección, restauración y trazabilidad (bases de prueba)
 ```
+
+## Copias de seguridad y restauración (C0)
+
+```bash
+python backup_data.py
+python restore_data.py --ultimo --destino data/restauracion_prueba.db
+python check_data.py
+python check_cointegration_history.py
+```
+
+Las copias ZIP usan el respaldo de SQLite, se comprueban y quedan en `backups/`
+fuera de Git. Se conservan 7 días, 4 semanas y 3 meses. `update_data.py` crea
+una copia antes de la primera descarga del día si falta. Para que también se
+haga sin abrir la app, programarla **solo en la máquina principal que elijas**:
+
+```bash
+python install_daily_backup.py --hora 21:15             # Preparar, NO activar
+python install_daily_backup.py --hora 21:15 --instalar  # Activar en esta máquina
+```
+
+La hora es local a la máquina y requiere equipo encendido/usuario conectado.
+Todavía no se activó una tarea en esta entrega.
+
+**[Instrucciones paso a paso para Mac, Windows y restauración](docs/C0.md)**
+· **[Referencias académicas verificadas y pendientes](docs/references.md)**
 
 ---
 

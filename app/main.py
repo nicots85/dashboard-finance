@@ -25,13 +25,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from src.data import DatabaseManager  # noqa: E402
+from src.data.db_manager import DEFAULT_DB_PATH  # noqa: E402
 from src.calc import (  # noqa: E402
     compute_market_regime_history,
     compute_zscore_history,
     compute_multi_timeframe_trends,
 )
 
-DB_PATH = os.path.join(ROOT, "data", "finance.db")
+DB_PATH = DEFAULT_DB_PATH
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 
 EMOJI_MAP = {
@@ -86,6 +87,8 @@ def cargar_configs():
 
 
 def query(sql, params=()):
+    if os.path.exists(DB_PATH + ".restore-lock"):
+        raise RuntimeError("La base se está restaurando. Esperá a que termine antes de abrir el tablero.")
     conn = sqlite3.connect(DB_PATH)
     try:
         return pd.read_sql_query(sql, conn, params=params)
@@ -98,16 +101,15 @@ def query(sql, params=()):
 # ----------------------------------------------------------------------
 @st.cache_data(ttl=900)
 def obtener_semaforos(activos_key, activos):
-    """Semáforo multi-temporalidad por activo (se cachea 15 min)."""
-    db = DatabaseManager()
+    """Misma versión guardada que la tabla; los avisos indican si falta recalcular."""
+    reg, _ = obtener_ultimos_calculos()
     out = {}
     for sym in activos:
-        dfs = {}
+        trends = {}
         for tf in ALL_TF:
-            df = db.load_candles(sym, tf)
-            if not df.empty:
-                dfs[tf] = df
-        out[sym] = compute_multi_timeframe_trends(sym, dfs)
+            rows = reg[(reg.symbol == sym) & (reg.timeframe == tf)]
+            trends[tf] = rows["direction"].iloc[0] if not rows.empty and rows["calc_status"].iloc[0] != "no_calculable" else "sin datos"
+        out[sym] = {"trends": trends}
     return out
 
 
@@ -143,13 +145,14 @@ def obtener_cointegracion(seccion, pares):
             (key,),
         )
         for _, r in df.iterrows():
+            calculable = r["calc_status"] != "no_calculable" and pd.notna(r["p_value"])
             rows.append({
                 "Par": p.get("nombre", key),
                 "TF": r["timeframe"],
-                "Cointegrado": "✅ cointegrado" if r["is_cointegrated"] else "❌ no cointegrado",
+                "Cointegrado": "No calculable" if not calculable else "✅ cointegrado" if r["is_cointegrated"] else "❌ no cointegrado",
                 "p-valor": r["p_value"],
                 "Beta": r["beta"],
-                "Z-spread": f"{r['z_spread']:+.2f}" if (r["is_cointegrated"] and r["z_spread"] is not None) else "-",
+                "Z-spread": f"{r['z_spread']:+.2f}" if (calculable and r["is_cointegrated"] and pd.notna(r["z_spread"])) else "-",
                 "Vida media (velas)": r["half_life"],
                 "Estabilidad %": r["pct_coint_windows"],
             })
@@ -286,6 +289,10 @@ def obtener_historia(symbol, tf, limite=500):
 
 
 def grafico_detalle(symbol, tf):
+    if tf == "4h":
+        with open(os.path.join(ROOT, "config", "operations.yaml"), encoding="utf-8") as file:
+            ops = yaml.safe_load(file)
+        st.caption("Horario de velas 4h: " + ops["platform_4h"]["current_label"])
     df = obtener_historia(symbol, tf)
     if df.empty or len(df) < 60:
         st.warning("No hay suficientes datos para este activo/temporalidad.")
@@ -481,6 +488,17 @@ def render_seccion(seccion):
 
     # f) Fecha de actualización
     st.caption(f"Última actualización de datos: {ultima_actualizacion()}")
+    with st.expander("Fechas de cálculo y datos usados"):
+        pair_keys = {f"{p['y']}/{p['x']}" for p in pares}
+        keys = set(activos) | pair_keys | set(SECTION_MACRO.get(seccion, []))
+        health = [h for h in st.session_state.get("calculation_health", []) if h["asset"] in keys]
+        if health:
+            names = {"asset": "Activo o par", "timeframe": "Temporalidad", "calculated_at": "Calculado (UTC)",
+                     "last_data_timestamp": "Último dato usado (UTC)", "status": "Estado", "reason": "Aviso"}
+            dates = pd.DataFrame(health).drop(columns=["table"]).rename(columns=names)
+            dates["Estado"] = dates["Estado"].map({"ok": "Comprobado", "stale": "Desactualizado",
+                "untracked": "Recalcular para comprobar", "no_calculable": "No calculable"})
+            st.dataframe(dates, use_container_width=True, hide_index=True)
 
     # g) Cómo leer esto (adaptado a la sección)
     with st.expander("Cómo leer esto"):
@@ -587,6 +605,25 @@ def render_en_construccion():
 # ----------------------------------------------------------------------
 def main():
     st.title("📊 Dashboard Financiero")
+    db = DatabaseManager(DB_PATH)
+    signature = db.data_signature()
+    if st.session_state.get("data_signature") != signature:
+        st.cache_data.clear()
+        st.session_state["data_signature"] = signature
+    with open(os.path.join(ROOT, "config", "calc.yaml"), encoding="utf-8") as file:
+        calc_config = yaml.safe_load(file)
+    health = db.get_calculation_health(calc_config)
+    st.session_state["calculation_health"] = health
+    pending = [h for h in health if h["status"] != "ok"]
+    if pending:
+        st.warning(f"Hay {len(pending)} resultados desactualizados, no calculables o sin versión comprobable. Revisá las fechas de cálculo y datos usados; los valores anteriores no se presentan como recién actualizados.")
+    notices = db.get_data_notices()
+    if notices:
+        with st.expander(f"Avisos de descargas y datos ({len(notices)})"):
+            for notice in notices[:30]:
+                st.write(f"{notice['asset']} · {notice['timeframe']}: {notice['message']}")
+            if len(notices) > 30:
+                st.caption("El registro completo puede consultarse con check_data.py.")
 
     # Botón actualizar
     if "tf_update" not in st.session_state:
@@ -614,7 +651,7 @@ def main():
         elif p2.returncode != 0:
             st.error(f"❌ Fallaron los cálculos (run_calc.py). Código de salida: {p2.returncode}. Revisá la consola.")
         else:
-            st.success(f"✅ Datos actualizados ({target_tfs}).")
+            st.success(f"✅ Descarga y cálculos terminaron ({target_tfs}). Revisá las fechas y avisos para ver qué series recibieron datos nuevos.")
 
     tabs = st.tabs(["Índices", "Metales", "Equity", "Small caps", "Cripto", "Argentina"])
     with tabs[0]:

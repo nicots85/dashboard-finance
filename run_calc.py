@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.data import DatabaseManager
+from src.data.db_manager import DEFAULT_DB_PATH
 from src.calc import (
     get_latest_market_regime,
     compute_multi_timeframe_trends,
@@ -55,6 +56,7 @@ def main():
         default="1m,5m,15m,1h,4h,1D",
         help="Temporalidades a procesar separadas por coma. Por defecto: 1m,5m,15m,1h,4h,1D",
     )
+    parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Base de datos (puede ser una copia de prueba)")
     args = parser.parse_args()
 
     # Cargar configuraciones
@@ -65,7 +67,7 @@ def main():
     target_tfs = [t.strip() for t in args.tf.split(",") if t.strip()]
     secciones_a_correr = [args.seccion] if args.seccion else list(assets_cfg.keys())
 
-    db = DatabaseManager()
+    db = DatabaseManager(args.db)
 
     print("\n" + "=" * 95)
     print("🧠 EJECUTANDO MOTOR DE CÁLCULOS CUANTITATIVOS (run_calc.py)")
@@ -100,10 +102,10 @@ def main():
                         continue
                     m_res = analyze_fred_series(
                         df_series,
-                        change_days=calc_cfg["macro"]["change_days"] if "change_days" in calc_cfg["macro"] else 30,
+                        change_days=calc_cfg["macro"].get("change_period_days", calc_cfg["macro"].get("change_days", 30)),
                         percentile_years=calc_cfg["macro"].get("percentile_window_years", 10),
                     )
-                    db.save_macro_result(s_id, m_res)
+                    db.save_macro_result(s_id, m_res, input_versions=[df_series.attrs["data_version"]], params=calc_cfg.get("macro", {}))
                     resumen_macro.append({
                         "series_id": s_id,
                         "valor": m_res["current_value"],
@@ -114,6 +116,7 @@ def main():
                     })
                 except Exception as e:
                     fallos.append((s_id, "1D", f"Error macro: {str(e)[:40]}"))
+                    db.record_data_notice(s_id, "1D", "calculation_error", f"Error macro: {e}")
             continue
 
         print(f"\n📊 Procesando Sección: [{sec.upper()}] ({len(activos)} activos)...")
@@ -141,11 +144,16 @@ def main():
                 try:
                     # Régimen
                     reg = get_latest_market_regime(df, config=calc_cfg.get("regime"))
-                    db.save_regime_result(sym, tf, reg)
+                    inputs = [df.attrs["data_version"]]
+                    db.save_regime_result(sym, tf, reg, input_versions=inputs, params=calc_cfg.get("regime", {}))
 
                     # Z-Score
                     z = get_latest_zscore(df, config=calc_cfg.get("zscore"))
-                    db.save_zscore_result(sym, tf, z)
+                    db.save_zscore_result(sym, tf, z, input_versions=inputs, params=calc_cfg.get("zscore", {}))
+                    if reg["direction"] == "sin datos" or z["z_atr"] is None:
+                        fallos.append((sym, tf, "No calculable: falta historia para régimen o dispersión"))
+                    else:
+                        db.resolve_data_notices(sym, tf, ["calculation_error"])
 
                     z_str = f"{z['z_atr']:+.2f}" if z['z_atr'] is not None else "-"
                     if z["is_extreme"]:
@@ -164,6 +172,7 @@ def main():
 
                 except Exception as e:
                     fallos.append((sym, tf, f"Error cálculo: {str(e)[:40]}"))
+                    db.record_data_notice(sym, tf, "calculation_error", f"Error de cálculo: {e}")
 
     # -------------------------------------------------------------
     # 2. Procesar Cointegración de Pares
@@ -172,6 +181,8 @@ def main():
     print(f"\n🔗 Procesando Cointegración de Pares (en {', '.join(coint_allowed_tfs)})...")
 
     for sec in secciones_a_correr:
+        if sec == "argentina":
+            continue  # Local/ADR se analiza con CCL, no con cointegración.
         pares_seccion = pairs_cfg.get(sec, [])
         for p_info in pares_seccion:
             sym_y = p_info["y"]
@@ -183,9 +194,6 @@ def main():
                 df_y = db.load_candles(sym_y, tf)
                 df_x = db.load_candles(sym_x, tf)
 
-                if df_y.empty or df_x.empty or len(df_y) < 30 or len(df_x) < 30:
-                    continue
-
                 try:
                     c_res = evaluate_pair_cointegration(
                         df_y,
@@ -195,10 +203,19 @@ def main():
                         rolling_windows_eval=calc_cfg["cointegration"].get("rolling_windows_eval", 20),
                     )
 
-                    last_ts = df_y["timestamp"].max()
-                    db.save_cointegration_result(pair_key, tf, last_ts, c_res)
+                    last_ts = c_res.get("timestamp")
+                    if last_ts is None:
+                        available = [d["timestamp"].max() for d in (df_y, df_x) if not d.empty]
+                        last_ts = max(available) if available else pd.Timestamp.now(tz="UTC")
+                    db.save_cointegration_result(pair_key, tf, last_ts, c_res,
+                        input_versions=[df_y.attrs["data_version"], df_x.attrs["data_version"]], params=calc_cfg.get("cointegration", {}))
+                    calculable = c_res["p_value"] is not None
+                    if not calculable:
+                        fallos.append((pair_key, tf, c_res.get("error_message", "No calculable")))
+                    else:
+                        db.resolve_data_notices(pair_key, tf, ["calculation_error"])
 
-                    coint_str = "✅ SÍ" if c_res["is_cointegrated"] else "❌ NO"
+                    coint_str = "NO CALCULABLE" if not calculable else "✅ SÍ" if c_res["is_cointegrated"] else "❌ NO"
                     p_val_str = f"{c_res['p_value']:.4f}" if c_res['p_value'] is not None else "-"
                     beta_str = f"{c_res['beta']:.2f}" if c_res['beta'] is not None else "-"
                     z_spr_str = f"{c_res['z_spread']:+.2f}" if (c_res['z_spread'] is not None and c_res['is_cointegrated']) else "-"
@@ -218,6 +235,7 @@ def main():
 
                 except Exception as e:
                     fallos.append((pair_key, tf, f"Error coint: {str(e)[:40]}"))
+                    db.record_data_notice(pair_key, tf, "calculation_error", f"No calculable: {e}")
 
     # -------------------------------------------------------------
     # 3. Imprimir Tablas de Resumen Prolijas en Español
@@ -260,7 +278,13 @@ def main():
             print(f"   ... y {len(fallos) - 10} más.")
     else:
         print("\n✅ Todos los cálculos se completaron sin omisiones ni errores.")
+    health = db.get_calculation_health(calc_cfg)
+    stale = [r for r in health if r["status"] != "ok"]
+    if stale:
+        print(f"\n⚠️ {len(stale)} resultados requieren atención (precios cambiados, falta de trazabilidad o no calculables).")
+    print("Cada resultado lleva fecha de cálculo, último dato usado, versión de precios y parámetros.")
+    return 1 if fallos else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

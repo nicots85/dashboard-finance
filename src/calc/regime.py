@@ -189,27 +189,40 @@ def get_latest_market_regime(
             "timestamp": None,
         }
 
-    history = compute_market_regime_history(
-        df,
-        ema_period=ema_p,
-        adx_period=adx_p,
-        adx_threshold_lateral=adx_th,
-        atr_period=atr_p,
-        atr_percentile_window=atr_win,
-        volatility_low_pct=vol_low,
-        volatility_high_pct=vol_high,
-        weak_trend_z=weak_z,
-    )
-
-    last_row = history.iloc[-1]
+    # Misma fórmula sobre TODA la historia, sin calcular percentiles de cada
+    # vela anterior cuando solo se necesita el último (fundamental para 1m).
+    if len(df) < max(ema_p, adx_p, atr_p) + 5:
+        return {"direction": "sin datos", "volatility": "sin datos", "regime": "sin datos",
+                "adx": None, "atr": None, "atr_percentile": None, "ema": None,
+                "close": float(df["close"].iloc[-1]) if pd.notna(df["close"].iloc[-1]) else None,
+                "timestamp": df["timestamp"].iloc[-1]}
+    ema = df["close"].ewm(span=ema_p, adjust=False).mean()
+    atr = calculate_atr(df, atr_p)
+    adx = calculate_adx(df, adx_p).iloc[-1]
+    slope = ema.diff().iloc[-1]
+    z = (df["close"].iloc[-1] - ema.iloc[-1]) / atr.iloc[-1] if atr.iloc[-1] else np.nan
+    recent_atr = atr.tail(atr_win).dropna()
+    pct = (recent_atr <= atr.iloc[-1]).mean() * 100 if len(recent_atr) >= 20 and pd.notna(atr.iloc[-1]) else np.nan
+    if pd.isna(adx) or pd.isna(ema.iloc[-1]):
+        direction = "sin datos"
+    elif adx >= adx_th and slope > 0:
+        direction = "alcista"
+    elif adx >= adx_th and slope <= 0:
+        direction = "bajista"
+    elif adx < adx_th and z > weak_z and slope > 0:
+        direction = "alcista (débil)"
+    elif adx < adx_th and z < -weak_z and slope < 0:
+        direction = "bajista (débil)"
+    else:
+        direction = "lateral"
+    volatility = "baja vol" if pct < vol_low else "alta vol" if pct > vol_high else "normal vol"
     return {
-        "direction": str(last_row["direction"]),
-        "volatility": str(last_row["volatility"]),
-        "regime": str(last_row["regime"]),
-        "adx": float(last_row["adx"]) if pd.notna(last_row["adx"]) else None,
-        "atr": float(last_row["atr"]) if pd.notna(last_row["atr"]) else None,
-        "atr_percentile": float(last_row["atr_percentile"]) if pd.notna(last_row["atr_percentile"]) else None,
-        "ema": float(last_row["ema"]) if pd.notna(last_row["ema"]) else None,
-        "close": float(last_row["close"]) if pd.notna(last_row["close"]) else None,
-        "timestamp": last_row["timestamp"],
+        "direction": direction, "volatility": volatility,
+        "regime": "sin datos" if direction == "sin datos" else direction + " / " + volatility,
+        "adx": float(adx) if pd.notna(adx) else None,
+        "atr": float(atr.iloc[-1]) if pd.notna(atr.iloc[-1]) else None,
+        "atr_percentile": float(pct) if pd.notna(pct) else None,
+        "ema": float(ema.iloc[-1]) if pd.notna(ema.iloc[-1]) else None,
+        "close": float(df["close"].iloc[-1]) if pd.notna(df["close"].iloc[-1]) else None,
+        "timestamp": df["timestamp"].iloc[-1],
     }

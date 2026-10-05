@@ -1,0 +1,34 @@
+# C0: la copia diaria se programa SOLO en la máquina que elija el usuario.
+backups:
+  directory: backups
+  daily: 7
+  weekly: 4
+  monthly: 3
+  compression_level: 6
+  schedule_time: "21:15"  # Hora local de la máquina; el instalador la muestra.
+  primary_machine: null
+
+# Se aplicarán al rediseño, no cambian los gráficos/cálculos actuales.
+cointegration_stability:
+  required_blocks: 5
+  block_bars: {"1h": 1000, "4h": 500, "1D": 500}
+  eligible_sections:
+    "1D": [indices, metales, equity, cripto]
+    "1h": [cripto]
+    "4h": [cripto]
+
+cme_vwap_session:
+  options: [complete, regular]
+  timezone: America/New_York
+  complete_start: "18:00"
+  complete_end: "17:00"
+  regular_start: "09:30"
+  regular_end: "16:00"
+  default: null  # Lo elige el usuario; no asumir validación de NQ frente al CFD.
+
+platform_4h:
+  label: "Horario de mi plataforma"
+  timezone: null
+  candle_open_times: []
+  verified: false
+  current_label: "UTC: 00:00, 04:00, 08:00, 12:00, 16:00 y 20:00; pendiente de validar con la plataforma"

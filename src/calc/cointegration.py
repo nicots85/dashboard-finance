@@ -106,6 +106,9 @@ def evaluate_pair_cointegration(
         "half_life": None,
         "pct_coint_windows": 0.0,
         "aligned_bars": 0,
+        "timestamp": None,
+        "calc_status": "no_calculable",
+        "error_message": "No hay al menos 30 velas coincidentes, válidas y positivas para el par.",
     }
 
     log_y, log_x, timestamps = align_pair_series(df_y, df_x)
@@ -113,6 +116,8 @@ def evaluate_pair_cointegration(
 
     if total_len < 30:
         return empty_result
+    empty_result["timestamp"] = timestamps[-1]
+    empty_result["aligned_bars"] = total_len
 
     # Si hay menos velas que window_size, usamos todo lo que haya
     eval_len = min(window_size, total_len)
@@ -122,6 +127,8 @@ def evaluate_pair_cointegration(
     try:
         # 1. Test de Cointegración de Engle-Granger
         score, p_value, _ = coint(y_window, x_window)
+        if not np.isfinite(p_value):
+            raise ValueError("El test devolvió un p-valor no calculable, no un resultado negativo.")
 
         # 2. Regresión OLS para Beta (Ratio de cobertura)
         X = sm.add_constant(x_window)
@@ -169,7 +176,10 @@ def evaluate_pair_cointegration(
             "half_life": float(half_life) if half_life is not None else None,
             "pct_coint_windows": round(pct_stable, 1),
             "aligned_bars": total_len,
+            "timestamp": timestamps[-1],
+            "calc_status": "ok",
+            "error_message": None,
         }
 
     except Exception as e:
-        return empty_result
+        return {**empty_result, "error_message": f"No se pudo calcular la cointegración: {e}"}

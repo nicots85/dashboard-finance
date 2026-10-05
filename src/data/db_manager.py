@@ -7,33 +7,42 @@ Maneja almacenamiento de velas OHLCV y series FRED, inserción incremental
 import os
 import sqlite3
 import logging
+from contextlib import contextmanager
 from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
+from src.data.audit import DataAuditMixin, initialize_audit, clock, stamp
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = os.path.join(
+DEFAULT_DB_PATH = os.environ.get("FINANCE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "data",
     "finance.db",
 )
 
 
-class DatabaseManager:
+class DatabaseManager(DataAuditMixin):
     """Administra la base de datos SQLite local para velas y series macro."""
 
     def __init__(self, db_path: str = DEFAULT_DB_PATH):
-        self.db_path = db_path
+        self.db_path = os.fspath(db_path)
         # Asegurar que el directorio data/ exista
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self.init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
         """Abre conexión con SQLite activando WAL mode y timeout para concurrencia."""
+        if os.path.exists(self.db_path + ".restore-lock"):
+            raise RuntimeError("La base se está restaurando. Esperá a que termine para actualizar o abrir el tablero.")
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def init_db(self):
         """Crea las tablas e índices si no existen."""
@@ -53,7 +62,7 @@ class DatabaseManager:
                     close REAL,
                     volume REAL,
                     source TEXT,               -- yahoo, binance, bybit, etc.
-                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    updated_at TEXT DEFAULT (datetime('now')),
                     PRIMARY KEY (symbol, timeframe, timestamp)
                 );
                 """
@@ -74,7 +83,7 @@ class DatabaseManager:
                     series_id TEXT NOT NULL,
                     timestamp TEXT NOT NULL,   -- ISO 8601 UTC
                     value REAL,
-                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    updated_at TEXT DEFAULT (datetime('now')),
                     PRIMARY KEY (series_id, timestamp)
                 );
                 """
@@ -99,7 +108,7 @@ class DatabaseManager:
                     regime TEXT,
                     adx REAL,
                     atr_percentile REAL,
-                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    updated_at TEXT DEFAULT (datetime('now')),
                     PRIMARY KEY (symbol, timeframe, timestamp)
                 );
                 """
@@ -115,7 +124,7 @@ class DatabaseManager:
                     z_std REAL,
                     is_extreme INTEGER,
                     percentile REAL,
-                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    updated_at TEXT DEFAULT (datetime('now')),
                     PRIMARY KEY (symbol, timeframe, timestamp)
                 );
                 """
@@ -133,7 +142,7 @@ class DatabaseManager:
                     half_life REAL,
                     is_cointegrated INTEGER,
                     pct_coint_windows REAL,
-                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    updated_at TEXT DEFAULT (datetime('now')),
                     PRIMARY KEY (pair, timeframe, timestamp)
                 );
                 """
@@ -148,11 +157,12 @@ class DatabaseManager:
                     change_1m REAL,
                     pct_change_1m REAL,
                     percentile REAL,
-                    updated_at TEXT DEFAULT (datetime('now', 'utc')),
+                    updated_at TEXT DEFAULT (datetime('now')),
                     PRIMARY KEY (series_id, timestamp)
                 );
                 """
             )
+            initialize_audit(conn)
             conn.commit()
 
     def get_latest_candle_timestamp(self, symbol: str, timeframe: str) -> Optional[pd.Timestamp]:
@@ -190,7 +200,7 @@ class DatabaseManager:
                 return pd.to_datetime(row[0], utc=True)
             return None
 
-    def save_candles(self, df: pd.DataFrame, symbol: str, timeframe: str, source: str = "") -> int:
+    def save_candles(self, df: pd.DataFrame, symbol: str, timeframe: str, source: str = "", observed_at=None) -> int:
         """
         Guarda un DataFrame OHLCV en la tabla candles usando INSERT OR REPLACE.
         Retorna la cantidad de registros insertados o actualizados.
@@ -199,7 +209,7 @@ class DatabaseManager:
             return 0
 
         # Preparar datos
-        df_to_save = df.copy()
+        df_to_save = df.drop_duplicates(subset=["timestamp"], keep="last").copy()
         if not pd.api.types.is_datetime64_any_dtype(df_to_save["timestamp"]):
             df_to_save["timestamp"] = pd.to_datetime(df_to_save["timestamp"], utc=True)
         else:
@@ -227,15 +237,32 @@ class DatabaseManager:
         ]
 
         with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
+            now = observed_at or clock()
+            fields = ["open", "high", "low", "close", "volume", "source"]
+            previous = {row[0]: row for row in conn.execute(
+                "SELECT timestamp,open,high,low,close,volume,source,updated_at FROM candles WHERE symbol=? AND timeframe=? AND timestamp BETWEEN ? AND ?",
+                (symbol, timeframe, min(r[2] for r in records), max(r[2] for r in records)))}
+            changed = False
+            for record in records:
+                old = previous.get(record[2])
+                new = dict(zip(fields, record[3:]))
+                if old is None:
+                    changed = True
+                elif tuple(old[1:7]) != tuple(record[3:]):
+                    changed = True
+                    self._record_correction(conn, symbol, timeframe, record[2], dict(zip(fields, old[1:7])), new, old[7], now)
             cursor.executemany(
                 """
                 INSERT OR REPLACE INTO candles 
                 (symbol, timeframe, timestamp, open, high, low, close, volume, source, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'utc'));
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
-                records,
+                [record + (stamp(now),) for record in records],
             )
+            if changed:
+                self._touch_version(conn, "candles", symbol, timeframe, now)
             conn.commit()
 
         return len(records)
@@ -266,20 +293,25 @@ class DatabaseManager:
         ]
 
         with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
+            old = dict(conn.execute("SELECT timestamp,value FROM fred_series WHERE series_id=?", (series_id,)))
+            changed = any(ts not in old or old[ts] != value for _, ts, value in records)
             cursor.executemany(
                 """
                 INSERT OR REPLACE INTO fred_series 
                 (series_id, timestamp, value, updated_at)
-                VALUES (?, ?, ?, datetime('now', 'utc'));
+                VALUES (?, ?, ?, datetime('now'));
                 """,
                 records,
             )
+            if changed:
+                self._touch_version(conn, "fred", series_id, "1D")
             conn.commit()
 
         return len(records)
 
-    def save_regime_result(self, symbol: str, timeframe: str, regime_data: Dict[str, Any]) -> None:
+    def save_regime_result(self, symbol: str, timeframe: str, regime_data: Dict[str, Any], input_versions=None, params=None) -> None:
         """Guarda o actualiza el resultado de régimen de mercado para la última vela."""
         if not regime_data or not regime_data.get("timestamp"):
             return
@@ -290,7 +322,7 @@ class DatabaseManager:
                 """
                 INSERT OR REPLACE INTO calc_regimes 
                 (symbol, timeframe, timestamp, direction, volatility, regime, adx, atr_percentile, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'utc'));
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'));
                 """,
                 (
                     symbol,
@@ -303,9 +335,11 @@ class DatabaseManager:
                     regime_data.get("atr_percentile"),
                 ),
             )
+            self._calculation_metadata(conn, "calc_regimes", symbol, timeframe, ts_str, input_versions, params,
+                                       "no_calculable" if regime_data.get("direction") == "sin datos" else "ok")
             conn.commit()
 
-    def save_zscore_result(self, symbol: str, timeframe: str, z_data: Dict[str, Any]) -> None:
+    def save_zscore_result(self, symbol: str, timeframe: str, z_data: Dict[str, Any], input_versions=None, params=None) -> None:
         """Guarda o actualiza el z-score para la última vela."""
         if not z_data or not z_data.get("timestamp"):
             return
@@ -316,7 +350,7 @@ class DatabaseManager:
                 """
                 INSERT OR REPLACE INTO calc_zscores 
                 (symbol, timeframe, timestamp, z_atr, z_std, is_extreme, percentile, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'utc'));
+                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'));
                 """,
                 (
                     symbol,
@@ -328,6 +362,8 @@ class DatabaseManager:
                     z_data.get("z_percentile"),
                 ),
             )
+            self._calculation_metadata(conn, "calc_zscores", symbol, timeframe, ts_str, input_versions, params,
+                                       "no_calculable" if z_data.get("z_atr") is None else "ok")
             conn.commit()
 
     def save_cointegration_result(
@@ -336,6 +372,8 @@ class DatabaseManager:
         timeframe: str,
         timestamp: Any,
         coint_data: Dict[str, Any],
+        input_versions=None,
+        params=None,
     ) -> None:
         """Guarda el resultado del test de cointegración."""
         if not timestamp:
@@ -347,7 +385,7 @@ class DatabaseManager:
                 """
                 INSERT OR REPLACE INTO calc_cointegration 
                 (pair, timeframe, timestamp, p_value, beta, z_spread, half_life, is_cointegrated, pct_coint_windows, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'utc'));
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'));
                 """,
                 (
                     pair,
@@ -361,9 +399,14 @@ class DatabaseManager:
                     coint_data.get("pct_coint_windows"),
                 ),
             )
+            self._calculation_metadata(conn, "calc_cointegration", pair, timeframe, ts_str, input_versions, params,
+                                       "no_calculable" if coint_data.get("p_value") is None else "ok", coint_data.get("error_message"))
+            if coint_data.get("timestamp") is None and coint_data.get("p_value") is None:
+                conn.execute("UPDATE calc_cointegration SET last_data_timestamp=NULL WHERE pair=? AND timeframe=? AND timestamp=?",
+                             (pair, timeframe, ts_str))
             conn.commit()
 
-    def save_macro_result(self, series_id: str, macro_data: Dict[str, Any]) -> None:
+    def save_macro_result(self, series_id: str, macro_data: Dict[str, Any], input_versions=None, params=None) -> None:
         """Guarda el análisis de una serie FRED."""
         if not macro_data or not macro_data.get("timestamp"):
             return
@@ -374,7 +417,7 @@ class DatabaseManager:
                 """
                 INSERT OR REPLACE INTO calc_macro 
                 (series_id, timestamp, current_value, change_1m, pct_change_1m, percentile, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'utc'));
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'));
                 """,
                 (
                     series_id,
@@ -385,6 +428,8 @@ class DatabaseManager:
                     macro_data.get("percentile"),
                 ),
             )
+            self._calculation_metadata(conn, "calc_macro", series_id, "1D", ts_str, input_versions, params,
+                                       "no_calculable" if macro_data.get("current_value") is None else "ok")
             conn.commit()
 
     def load_candles(
@@ -408,22 +453,28 @@ class DatabaseManager:
         query += " ORDER BY timestamp ASC"
 
         with self._get_connection() as conn:
+            conn.execute("BEGIN")
+            version = self._input_version(conn, "candles", symbol, timeframe)
             df = pd.read_sql_query(query, conn, params=params)
 
         if not df.empty:
             df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
 
+        df.attrs["data_version"] = version
         return df
 
     def load_fred_series(self, series_id: str) -> pd.DataFrame:
         """Carga serie de FRED en un DataFrame ordenado."""
         query = "SELECT timestamp, value FROM fred_series WHERE series_id = ? ORDER BY timestamp ASC"
         with self._get_connection() as conn:
+            conn.execute("BEGIN")
+            version = self._input_version(conn, "fred", series_id, "1D")
             df = pd.read_sql_query(query, conn, params=[series_id])
 
         if not df.empty:
             df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
 
+        df.attrs["data_version"] = version
         return df
 
     def get_summary_stats(self) -> List[Dict[str, Any]]:

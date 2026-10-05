@@ -99,23 +99,24 @@ def get_latest_zscore(
             "timestamp": None,
         }
 
-    history = compute_zscore_history(
-        df,
-        mean_type=mean_type,
-        period=period,
-        atr_period=atr_period,
-        std_period=std_period,
-        extreme_threshold=extreme_th,
-        percentile_window=pct_window,
-    )
-
-    last = history.iloc[-1]
+    if len(df) < max(period, atr_period, std_period) + 5:
+        return {"z_atr": None, "z_std": None, "is_extreme": False, "z_percentile": None,
+                "mean": None, "close": float(df["close"].iloc[-1]) if pd.notna(df["close"].iloc[-1]) else None,
+                "timestamp": df["timestamp"].iloc[-1]}
+    mean = df["close"].ewm(span=period, adjust=False).mean() if mean_type.lower() == "ema" else df["close"].rolling(period, min_periods=period).mean()
+    atr = calculate_atr(df, atr_period).replace(0, np.nan)
+    std = df["close"].rolling(std_period, min_periods=std_period).std().replace(0, np.nan)
+    z_atr = (df["close"] - mean) / atr
+    za = z_atr.iloc[-1]
+    zs = ((df["close"] - mean) / std).iloc[-1]
+    recent = z_atr.tail(pct_window).dropna()
+    pct = (recent <= za).mean() * 100 if len(recent) >= 20 and pd.notna(za) else np.nan
     return {
-        "z_atr": float(last["z_atr"]) if pd.notna(last["z_atr"]) else None,
-        "z_std": float(last["z_std"]) if pd.notna(last["z_std"]) else None,
-        "is_extreme": bool(last["is_extreme"]) if pd.notna(last["is_extreme"]) else False,
-        "z_percentile": float(last["z_percentile"]) if pd.notna(last["z_percentile"]) else None,
-        "mean": float(last["z_mean"]) if pd.notna(last["z_mean"]) else None,
-        "close": float(last["close"]) if pd.notna(last["close"]) else None,
-        "timestamp": last["timestamp"],
+        "z_atr": float(za) if pd.notna(za) else None,
+        "z_std": float(zs) if pd.notna(zs) else None,
+        "is_extreme": bool(abs(za) > extreme_th) if pd.notna(za) else False,
+        "z_percentile": float(pct) if pd.notna(pct) else None,
+        "mean": float(mean.iloc[-1]) if pd.notna(mean.iloc[-1]) else None,
+        "close": float(df["close"].iloc[-1]) if pd.notna(df["close"].iloc[-1]) else None,
+        "timestamp": df["timestamp"].iloc[-1],
     }

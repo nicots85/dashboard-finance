@@ -42,6 +42,7 @@ class YahooAdapter(BaseAdapter):
         super().__init__(name="yahoo")
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.fetch_notices = {}
 
     def fetch_ohlcv(
         self,
@@ -56,6 +57,8 @@ class YahooAdapter(BaseAdapter):
         """
         if timeframe not in self.TF_MAP:
             raise ValueError(f"Temporalidad '{timeframe}' no soportada por YahooAdapter.")
+        notices = []
+        self.fetch_notices[(symbol, timeframe)] = notices
 
         yf_interval = self.TF_MAP[timeframe]
         max_lookback_days = self.MAX_DAYS[timeframe]
@@ -71,6 +74,9 @@ class YahooAdapter(BaseAdapter):
                 start_dt = start_dt.tz_convert("UTC")
             # Respetar límite máximo de la API de Yahoo
             if start_dt < earliest_allowed:
+                notices.append({"kind": "download_limit", "message":
+                    f"Yahoo solo permite recuperar aproximadamente {max_lookback_days} días en {timeframe}. "
+                    f"La actualización de {symbol} pidió desde {start_dt.isoformat()}; el tramo anterior a {earliest_allowed.isoformat()} no se pudo recuperar. Las velas guardadas se conservan."})
                 start_dt = earliest_allowed
         else:
             if timeframe in ["1m", "5m", "15m", "1h", "4h"]:
@@ -88,12 +94,14 @@ class YahooAdapter(BaseAdapter):
                         interval=yf_interval,
                         start=start_str,
                         auto_adjust=False,
+                        raise_errors=True,
                     )
                 else:
                     raw_df = ticker.history(
                         period="max",
                         interval=yf_interval,
                         auto_adjust=False,
+                        raise_errors=True,
                     )
                 break
             except Exception as e:

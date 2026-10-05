@@ -10,9 +10,13 @@ Verifica:
 
 import os
 import sys
+import json
 from datetime import datetime, timezone
 import pandas as pd
 from src.data.db_manager import DatabaseManager
+import yaml
+from pathlib import Path
+from src.data.audit import recent_gaps
 
 
 def check_duplicates(db: DatabaseManager):
@@ -210,11 +214,37 @@ def main():
         print("   ✅ Sin splits sospechosos en los últimos 60 días.")
     else:
         for a in alertas[:15]:
-            print(f"   ⚠️  {a['symbol']} el {a['fecha']}: variación de {a['cambio']:.0f}% — posible split. Cómo corregirlo: borrá las velas de ese ticker y volvé a descargar con update_data.py.")
+            print(f"   ⚠️  {a['symbol']} el {a['fecha']}: variación de {a['cambio']:.0f}% — posible split. Verificá el proveedor y ejecutá backup_data.py antes de corregir; no borres historia intradía que la fuente ya no ofrece.")
         if len(alertas) > 15:
             print(f"   ... y {len(alertas) - 15} más.")
 
     # 4. Resumen general de la base de datos
+    print("\n4️⃣  Correcciones a velas terminadas y avisos de descarga:")
+    with db._get_connection() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM candle_corrections").fetchone()[0]
+        corrections = conn.execute("SELECT symbol,timeframe,timestamp,observed_at,changed_fields,old_values FROM candle_corrections ORDER BY id DESC LIMIT 10").fetchall()
+    print(f"   Correcciones registradas desde C0: {count}")
+    for sym, tf, ts, observed, fields, old_values in corrections:
+        print(f"   • {sym} {tf} · vela {ts} · corregida {observed}: {fields}")
+        if "_fecha_recepcion" in json.loads(old_values):
+            print("     Recepción anterior a C0 no verificable: puede incluir una primera finalización, no necesariamente una corrección histórica.")
+    with db._get_connection() as conn:
+        series = conn.execute("SELECT DISTINCT symbol,timeframe FROM candles").fetchall()
+        for sym, tf in series:
+            recent = pd.read_sql_query("SELECT timestamp,source FROM candles WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 1000", conn, params=(sym, tf))
+            if not recent.empty:
+                for notice in recent_gaps(recent, sym, tf, recent.source.iloc[0]):
+                    db.record_data_notice(sym, tf, notice["kind"], notice["message"])
+    for notice in db.get_data_notices():
+        print(f"   ⚠️ {notice['asset']} {notice['timeframe']}: {notice['message']}")
+    print("\n5️⃣  Resultados guardados frente a la versión actual de precios:")
+    with open(Path(__file__).parent / "config/calc.yaml", encoding="utf-8") as file:
+        calc_config = yaml.safe_load(file)
+    pending = [r for r in db.get_calculation_health(calc_config) if r["status"] != "ok"]
+    if not pending:
+        print("   ✅ Cálculos comprobados: fechas, parámetros y versiones de precios coinciden.")
+    for result in pending:
+        print(f"   ⚠️ {result['asset']} {result['timeframe']} · cálculo {result['calculated_at']} · último dato usado {result['last_data_timestamp']}: {result['reason']}")
     stats = db.get_summary_stats()
     total_registros = sum(s["count"] for s in stats)
     print(f"\n📊 Total de series/activos en base local: {len(stats)} | Registros totales: {total_registros:,}")

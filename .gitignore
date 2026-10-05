@@ -10,6 +10,10 @@ env/
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/*-wal
+data/*-shm
+data/*.restore-lock
+backups/
 
 # ── Python cache ──
 __pycache__/

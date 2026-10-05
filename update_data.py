@@ -28,6 +28,9 @@ from src.data import (
     FredAdapter,
     DatabaseManager,
 )
+from src.data.audit import recent_gaps
+from src.data.db_manager import DEFAULT_DB_PATH
+from src.data.backup import ROOT, ensure_daily_backup
 
 # Configuración básica de logging limpio
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -58,6 +61,11 @@ def update_market_asset(
             
             # Descargar desde la última fecha conocida (o historia completa si es nuevo)
             df = adapter.fetch_ohlcv(symbol, timeframe=tf, since=last_ts)
+            notices = getattr(adapter, "fetch_notices", {}).get((symbol, tf), [])
+            db.resolve_data_notices(symbol, tf, ["download_limit", "download_error", "empty_response"])
+            for notice in notices:
+                db.record_data_notice(symbol, tf, notice["kind"], notice["message"])
+                logger.warning(f"   ⚠️ {notice['message']}")
 
             if df is None or df.empty:
                 # Si no vinieron datos nuevos pero ya había datos en BD
@@ -71,8 +79,9 @@ def update_market_asset(
                         "min_date": total_in_db["timestamp"].min().strftime("%Y-%m-%d %H:%M"),
                         "max_date": total_in_db["timestamp"].max().strftime("%Y-%m-%d %H:%M"),
                         "source": source_used,
-                        "status": "Al día (0 nuevas)",
+                        "status": "Sin datos nuevos (no confirma que esté al día)",
                     })
+                    db.record_data_notice(symbol, tf, "empty_response", "La fuente no devolvió datos nuevos; se conserva el último dato y no se confirma una actualización.")
                 else:
                     results.append({
                         "symbol": symbol,
@@ -93,6 +102,10 @@ def update_market_asset(
 
             # Consultar estado final en BD
             total_in_db = db.load_candles(symbol, tf)
+            db.resolve_data_notices(symbol, tf, ["gap"])
+            for notice in recent_gaps(total_in_db.tail(1000), symbol, tf, source_used):
+                db.record_data_notice(symbol, tf, notice["kind"], notice["message"])
+                logger.warning(f"   ⚠️ {notice['message']}")
             results.append({
                 "symbol": symbol,
                 "tf": tf,
@@ -100,10 +113,13 @@ def update_market_asset(
                 "min_date": total_in_db["timestamp"].min().strftime("%Y-%m-%d %H:%M"),
                 "max_date": total_in_db["timestamp"].max().strftime("%Y-%m-%d %H:%M"),
                 "source": source_used,
-                "status": f"OK (+{len(df)} nuevas)",
+                "status": f"{'PARCIAL' if any(n['kind'] == 'download_limit' for n in notices) else 'OK'} ({len(df)} velas recibidas; pueden incluir correcciones)",
             })
 
         except Exception as e:
+            for notice in getattr(adapter, "fetch_notices", {}).get((symbol, tf), []):
+                db.record_data_notice(symbol, tf, notice["kind"], notice["message"])
+            db.record_data_notice(symbol, tf, "download_error", f"Falló la descarga: {str(e)}")
             results.append({
                 "symbol": symbol,
                 "tf": tf,
@@ -154,6 +170,7 @@ def update_fred_section(
                 continue
 
             db.save_fred_series(df, series_id=s_id)
+            db.resolve_data_notices(s_id, "1D", ["download_error"])
             total_in_db = db.load_fred_series(s_id)
             results.append({
                 "symbol": s_id,
@@ -166,6 +183,7 @@ def update_fred_section(
             })
 
         except Exception as e:
+            db.record_data_notice(s_id, "1D", "download_error", f"Falló la descarga de FRED: {e}")
             results.append({
                 "symbol": s_id,
                 "tf": "1D",
@@ -220,6 +238,7 @@ def main():
         default="1m,5m,15m,1h,4h,1D",
         help="Temporalidades separadas por coma (ej: 1h,1D o 1m,5m,15m,1h,4h,1D). Por defecto: 1m,5m,15m,1h,4h,1D",
     )
+    parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Base de datos (también permite trabajar sobre una copia de prueba)")
     args = parser.parse_args()
 
     # Parsear temporalidades
@@ -236,8 +255,20 @@ def main():
         print(f"❌ Error cargando configuración: {e}")
         sys.exit(1)
 
+    # Proteger la base existente antes de descargas y migraciones.
+    if os.path.exists(args.db):
+        try:
+            ops = load_config(str(ROOT / "config/operations.yaml"))["backups"]
+            backup = ensure_daily_backup(args.db, ROOT / ops["directory"],
+                        retention={k: ops[k] for k in ("daily", "weekly", "monthly")},
+                        compression_level=ops["compression_level"])
+            if backup:
+                print(f"✅ Copia automática previa: {backup['archive']}")
+        except Exception as exc:
+            print(f"❌ No se actualizó la base porque falló su respaldo: {exc}")
+            return 1
     # Inicializar Base de Datos
-    db = DatabaseManager()
+    db = DatabaseManager(args.db)
 
     # Inicializar adaptadores
     yahoo_adapter = YahooAdapter()
@@ -273,6 +304,8 @@ def main():
         if fuente == "fred":
             if not fred_adapter:
                 print("   ⚠️  FRED_API_KEY no configurada. Omitiendo referencias FRED.")
+                all_results.append({"symbol": "FRED", "tf": "1D", "count": 0,
+                    "min_date": "-", "max_date": "-", "source": "fred", "status": "ERROR: FRED no inicializado"})
                 continue
             res = update_fred_section(fred_adapter, db, activos)
             all_results.extend(res)
@@ -296,7 +329,8 @@ def main():
 
     # Imprimir tabla resumen final
     print_summary_table(all_results)
+    return 1 if any(r["status"].startswith(("ERROR", "PARCIAL")) for r in all_results) else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -33,6 +33,7 @@ class CryptoAdapter(BaseAdapter):
         self.max_retries = max_retries
         self._exchanges: Dict[str, Any] = {}
         self.source_used: Dict[str, str] = {}  # Registra qué exchange se usó para cada activo
+        self.fetch_notices = {}
 
     def _get_exchange(self, name: str):
         """Instancia o reutiliza una conexión ccxt con rate limiting."""
@@ -58,6 +59,7 @@ class CryptoAdapter(BaseAdapter):
             raise ValueError(f"Temporalidad '{timeframe}' no soportada por CryptoAdapter.")
 
         ccxt_tf = self.TF_MAP[timeframe]
+        self.fetch_notices[(symbol, timeframe)] = []
 
         # Para HYPE o cualquier activo que falle en Binance, probamos en cascada:
         # Binance -> Bybit -> OKX -> Hyperliquid API
@@ -96,6 +98,8 @@ class CryptoAdapter(BaseAdapter):
         limit: Optional[int] = None,
     ) -> pd.DataFrame:
         """Descarga paginada usando la API de ccxt."""
+        original_tf = "1D" if timeframe == "1d" else timeframe
+        self.fetch_notices.setdefault((symbol, original_tf), [])
         ex = self._get_exchange(exchange_name)
         
         # Verificar si el mercado existe en este exchange
@@ -119,6 +123,9 @@ class CryptoAdapter(BaseAdapter):
                 since_ms = int(pd.Timestamp("2017-01-01", tz="UTC").timestamp() * 1000)
             else:
                 since_ms = now_ms - back_days * 24 * 60 * 60 * 1000
+                original_tf = "1D" if timeframe == "1d" else timeframe
+                self.fetch_notices[(symbol, original_tf)].append({"kind": "initial_download_limit", "message":
+                    f"Carga inicial de {symbol} en {original_tf}: limitada a los últimos {back_days} días. No se eliminan velas guardadas."})
             if timeframe == "1m":
                 logger.info(f"{symbol} 1m: descarga limitada a los últimos 90 días")
         else:
@@ -155,7 +162,17 @@ class CryptoAdapter(BaseAdapter):
             since_ms = last_timestamp + 1
 
             if limit is not None and len(all_ohlcv) >= limit:
+                if last_timestamp < now_ms - ex.parse_timeframe(timeframe) * 1000:
+                    original_tf = "1D" if timeframe == "1d" else timeframe
+                    self.fetch_notices[(symbol, original_tf)].append({"kind": "download_limit", "message":
+                        f"Se alcanzó el límite solicitado de {limit} velas para {symbol} en {original_tf}; la descarga quedó parcial."})
                 break
+        else:
+            if all_ohlcv and all_ohlcv[-1][0] < now_ms - ex.parse_timeframe(timeframe) * 1000:
+                original_tf = "1D" if timeframe == "1d" else timeframe
+                self.fetch_notices[(symbol, original_tf)].append({"kind": "download_limit", "message":
+                    f"Se alcanzó el límite de {max_batches} pedidos para {symbol} en {original_tf}. "
+                    "La descarga quedó parcial; ejecutá nuevamente para continuar desde lo guardado."})
 
         if not all_ohlcv:
             return pd.DataFrame()
@@ -201,6 +218,9 @@ class CryptoAdapter(BaseAdapter):
             return pd.DataFrame()
 
         records = []
+        if candles and since is not None and int(candles[0]["t"]) > int(since.timestamp() * 1000):
+            self.fetch_notices[(symbol, timeframe)].append({"kind": "download_limit", "message":
+                f"Hyperliquid no devolvió toda la historia solicitada de {symbol} en {timeframe}; revisá la cobertura disponible."})
         for c in candles:
             records.append({
                 "timestamp": pd.to_datetime(c["t"], unit="ms", utc=True),
