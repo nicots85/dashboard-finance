@@ -45,6 +45,33 @@ EMOJI_MAP = {
 
 st.set_page_config(page_title="Dashboard Financiero", layout="wide")
 
+SECTION_MACRO = {
+    "indices": ["DGS10", "T10Y2Y", "DFII10", "VIXCLS", "DTWEXBGS", "BAMLH0A0HYM2"],
+    "metales": ["DFII10", "DTWEXBGS"],
+    "equity": ["DGS10", "T10Y2Y", "BAMLH0A0HYM2"],
+    "smallcaps": ["DGS10", "BAMLH0A0HYM2"],
+    "cripto": ["DTWEXBGS", "VIXCLS"],
+    "argentina": ["DTWEXBGS"],
+}
+
+NOTAS_BASE = """
+- **Z-score alto (|z| > 2)** indica que el precio está *estirado* respecto a su promedio,
+  **no** una señal de reversión: en tendencias fuertes puede persistir varios días.
+- **Régimen "(débil)"**: la tendencia es clara por momentum pero el ADX todavía no la confirma.
+- **Cointegración**: que dos activos se muevan juntos hoy no garantiza que sigan haciéndolo; puede romperse.
+- **Datos gratuitos**: yfinance y Binance tienen retraso de minutos.
+- **Intradía de índices**: Yahoo guarda poco historial (1m ~7 días, 5m/15m ~60 días).
+"""
+
+NOTAS_SECCION = {
+    "indices": NOTAS_BASE,
+    "metales": NOTAS_BASE + "\n- **Oro/Plata**: cuando el ratio sube, el oro gana terreno frente a la plata (y viceversa). Importa el *z-score del ratio*, no el nivel absoluto.",
+    "cripto": NOTAS_BASE + "\n- **Cripto es 24/7**: no se marca desactualizado por fines de semana. **ETH/BTC y SOL/BTC** altos = altcoin dominando; muy bajos = BTC dominando.",
+    "equity": NOTAS_BASE,
+    "smallcaps": NOTAS_BASE,
+    "argentina": NOTAS_BASE + "\n- **CCL implícito**: depende del dólar CCL entre mercados; los horarios de BYMA y NYSE no coinciden del todo, por lo que los valores intradía deben leerse con cautela.",
+}
+
 
 # ----------------------------------------------------------------------
 # Utilidades de configuración
@@ -147,6 +174,76 @@ def ultima_actualizacion():
         return None
 
 
+@st.cache_data(ttl=900)
+def obtener_fuentes():
+    df = query("SELECT symbol, source, MAX(timestamp) AS mt FROM candles GROUP BY symbol, source")
+    df = df.sort_values("mt").drop_duplicates("symbol", keep="last")
+    return dict(zip(df["symbol"], df["source"]))
+
+
+TF_MINUTOS = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1D": 1440}
+
+
+def antiguedad(symbol, tf, ahora, seccion):
+    """Texto 'hace X' con ⚠ si está más viejo de lo esperado; para cripto no se marca fin de semana."""
+    try:
+        df = query(
+            "SELECT MAX(timestamp) AS mt FROM candles WHERE symbol=? AND timeframe=?", (symbol, tf)
+        )
+        mt = df["mt"].iloc[0]
+        if mt is None or (isinstance(mt, float) and pd.isna(mt)):
+            return "-"
+        mt = pd.to_datetime(mt, utc=True)
+        delta = ahora - mt
+        minutos = delta.total_seconds() / 60
+
+        # fin de semana: para activos de mercados (no cripto), la última vela es del viernes
+        es_cripto = seccion == "cripto"
+        umbral = TF_MINUTOS[tf] * 3 + 5
+        if not es_cripto:
+            if ahora.dayofweek >= 5:  # sábado/domingo
+                return f"hace {_fmt_edad(minutos)} (finde)"
+            if mt.dayofweek == 4 and ahora.dayofweek == 0:
+                return f"hace {_fmt_edad(minutos)} (finde)"
+
+        if minutos > umbral:
+            return f"⚠ hace {_fmt_edad(minutos)}"
+        return f"hace {_fmt_edad(minutos)}"
+    except Exception:
+        return "-"
+
+
+def _fmt_edad(minutos):
+    if minutos < 60:
+        return f"{int(minutos)} min"
+    if minutos < 60 * 48:
+        return f"{int(minutos // 60)} h"
+    return f"{int(minutos // 1440)} d"
+
+
+@st.cache_data(ttl=900)
+def ratio_zscore(y, x, tf="1D"):
+    """Z-score y percentil del ratio y/x (ej: Oro/Plata, ETH/BTC)."""
+    from src.calc.zscore import get_latest_zscore
+
+    db = DatabaseManager()
+    dy = db.load_candles(y, tf)
+    dx = db.load_candles(x, tf)
+    if dy.empty or dx.empty:
+        return None
+    m = pd.concat(
+        [dy.set_index("timestamp")["close"].rename("cy"), dx.set_index("timestamp")["close"].rename("cx")],
+        axis=1, join="inner",
+    ).dropna()
+    if len(m) < 60:
+        return None
+    ratio = m["cy"] / m["cx"]
+    df = pd.DataFrame({"timestamp": ratio.index, "open": ratio.values, "high": ratio.values,
+                       "low": ratio.values, "close": ratio.values, "volume": 0.0})
+    z = get_latest_zscore(df)
+    return {"ratio": float(ratio.iloc[-1]), "z_atr": z["z_atr"], "percentile": z["z_percentile"]}
+
+
 # ----------------------------------------------------------------------
 # Gráfico detallado
 # ----------------------------------------------------------------------
@@ -216,10 +313,13 @@ def render_seccion(seccion):
     activos = assets_cfg[seccion].get("activos", [])
     pares = pairs_cfg.get(seccion, [])
 
-    # a) Barra macro
+    # a) Barra macro (relevante a la sección)
     with st.spinner("Cargando referencias macro..."):
         macro = obtener_macro()
+    macro_ids = SECTION_MACRO.get(seccion, [])
     if not macro.empty:
+        if macro_ids:
+            macro = macro[macro.index.isin(macro_ids)]
         st.subheader("Referencias macro")
         nombres = {"DGS10": "Tasa 10 años", "T10Y2Y": "Curva 10y-2y", "DFII10": "Tasa real 10y",
                    "VIXCLS": "VIX", "DTWEXBGS": "Dólar", "BAMLH0A0HYM2": "Spread HY"}
@@ -235,20 +335,26 @@ def render_seccion(seccion):
     with st.spinner("Calculando semáforos y leyendo resultados..."):
         semaforos = obtener_semaforos(",".join(activos), activos)
         reg, zdf = obtener_ultimos_calculos()
+        fuentes = obtener_fuentes()
 
     filas = []
+    filas_edad = []
+    ahora = pd.Timestamp.now(tz="UTC")
     for sym in activos:
         regs = reg[(reg.symbol == sym) & (reg.timeframe == "1D")]
         zs = zdf[(zdf.symbol == sym) & (zdf.timeframe == "1D")]
         sem = semaforos.get(sym, {}).get("trends", {})
-        fila = {"Activo": sym}
+        fila = {"Activo": sym, "Fuente": fuentes.get(sym, "-")}
         fila["Régimen (1D)"] = regs["regime"].iloc[0] if not regs.empty else "sin datos"
+        edad_fila = {"Activo": sym}
         for tf in ALL_TF:
             fila[tf] = EMOJI_MAP.get(sem.get(tf, "sin datos"), "▫️")
+            edad_fila[tf] = antiguedad(sym, tf, ahora, seccion)
         fila["Z-ATR"] = zs["z_atr"].iloc[0] if not zs.empty else None
         fila["Z-desvío"] = zs["z_std"].iloc[0] if not zs.empty else None
         fila["Percentil Z"] = zs["percentile"].iloc[0] if not zs.empty else None
         filas.append(fila)
+        filas_edad.append(edad_fila)
 
     df_tabla = pd.DataFrame(filas)
 
@@ -264,19 +370,42 @@ def render_seccion(seccion):
         .format({"Z-ATR": "{:+.2f}", "Z-desvío": "{:+.2f}", "Percentil Z": "{:.0f}%"}, na_rep="-")
     )
     st.dataframe(styled, use_container_width=True)
-    st.caption("▫️ = sin datos (la fuente gratuita no tiene historia para ese activo/temporalidad; para índices, los intradía son cortos: 1m ≈ 7 días, 5m/15m ≈ 60 días).")
+    st.caption("▫️ = sin datos (la fuente gratuita no tiene historia para ese activo/temporalidad).")
+
+    # Antigüedad del dato por temporalidad (amarillo = desactualizado)
+    st.caption("Antigüedad del dato por temporalidad (amarillo = desactualizado):")
+    df_edad = pd.DataFrame(filas_edad)
+
+    def viejo(v):
+        return "background-color: #fff3b0" if v and v.startswith("⚠") else ""
+
+    st.dataframe(df_edad.style.map(viejo), use_container_width=True, hide_index=True)
 
     # c) Cointegración
     st.subheader("Cointegración de pares")
-    coint = obtener_cointegracion(seccion, pares)
-    if coint.empty:
-        st.info("Sin resultados de cointegración guardados aún.")
-    else:
-        st.dataframe(
-            coint.style.format({"p-valor": "{:.4f}", "Beta": "{:.2f}",
-                                "Vida media (velas)": "{:.1f}", "Estabilidad %": "{:.0f}%"}, na_rep="-"),
-            use_container_width=True,
-        )
+    if pares:
+        coint = obtener_cointegracion(seccion, pares)
+        if coint.empty:
+            st.info("Sin resultados de cointegración guardados aún.")
+        else:
+            st.dataframe(
+                coint.style.format({"p-valor": "{:.4f}", "Beta": "{:.2f}",
+                                    "Vida media (velas)": "{:.1f}", "Estabilidad %": "{:.0f}%"}, na_rep="-"),
+                use_container_width=True,
+            )
+
+    # c.b) Ratios con z-score (según sección)
+    if seccion == "metales":
+        st.subheader("Ratio Oro/Plata (GC=F / SI=F)")
+        r = ratio_zscore("GC=F", "SI=F")
+        mostrar_ratio(r, "Oro/Plata")
+    elif seccion == "cripto":
+        st.subheader("Dominancia relativa (ratio vs BTC)")
+        c1, c2 = st.columns(2)
+        with c1:
+            mostrar_ratio(ratio_zscore("ETH/USDT", "BTC/USDT"), "ETH/BTC")
+        with c2:
+            mostrar_ratio(ratio_zscore("SOL/USDT", "BTC/USDT"), "SOL/BTC")
 
     # d) Detalle por activo
     st.subheader("Detalle por activo")
@@ -290,6 +419,20 @@ def render_seccion(seccion):
 
     # f) Fecha de actualización
     st.caption(f"Última actualización de datos: {ultima_actualizacion()}")
+
+    # g) Cómo leer esto (adaptado a la sección)
+    with st.expander("Cómo leer esto"):
+        st.markdown(NOTAS_SECCION.get(seccion, NOTAS_BASE))
+
+
+def mostrar_ratio(r, nombre):
+    if r is None:
+        st.info(f"Sin datos suficientes para {nombre}.")
+        return
+    z = r["z_atr"]
+    st.metric(nombre, f"{r['ratio']:.4f}", f"z = {z:+.2f}" if z is not None else "z = -")
+    if r["percentile"] is not None:
+        st.caption(f"Percentil histórico del z: {r['percentile']:.0f}%")
 
 
 def render_en_construccion():
@@ -334,33 +477,15 @@ def main():
     with tabs[0]:
         render_seccion("indices")
     with tabs[1]:
-        render_en_construccion()
+        render_seccion("metales")
     with tabs[2]:
         render_en_construccion()
     with tabs[3]:
         render_en_construccion()
     with tabs[4]:
-        render_en_construccion()
+        render_seccion("cripto")
     with tabs[5]:
         render_en_construccion()
-
-    with st.expander("Cómo leer esto"):
-        st.markdown(
-            """
-- **Z-score alto (|z| > 2)** indica que el precio está *estirado* respecto a su promedio,
-  **no** una señal de reversión: en tendencias fuertes puede persistir varios días.
-- **Régimen "(débil)"**: la tendencia es clara por momentum pero el ADX todavía no la confirma.
-  Tomarla con más cautela que una tendencia fuerte.
-- **Cointegración**: que dos activos se muevan juntos hoy no garantiza que sigan haciéndolo;
-  puede romperse. La columna *Estabilidad* muestra qué tan frecuente fue cointegrado.
-- **Vida media**: velas promedio que tarda el spread en volver a la media.
-- **Datos gratuitos**: yfinance y Binance tienen retraso de minutos; la intradía corta (1m, 5m, 15m)
-  solo cubre un historial limitado.
-- **Intradía de índices**: Yahoo solo guarda poco historial (1m ~7 días, 5m/15m ~60 días), por eso
-  las columnas intradía del semáforo son menos profundas que el 1D.
-- **ADX < 20**: no hay tendencia definida, solo ruido; el sistema lo marca como "lateral".
-"""
-        )
 
 
 if __name__ == "__main__":
