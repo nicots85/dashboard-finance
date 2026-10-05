@@ -381,18 +381,24 @@ def render_seccion(seccion):
 
     st.dataframe(df_edad.style.map(viejo), use_container_width=True, hide_index=True)
 
-    # c) Cointegración
-    st.subheader("Cointegración de pares")
-    if pares:
-        coint = obtener_cointegracion(seccion, pares)
-        if coint.empty:
-            st.info("Sin resultados de cointegración guardados aún.")
-        else:
-            st.dataframe(
-                coint.style.format({"p-valor": "{:.4f}", "Beta": "{:.2f}",
-                                    "Vida media (velas)": "{:.1f}", "Estabilidad %": "{:.0f}%"}, na_rep="-"),
-                use_container_width=True,
-            )
+    # c) Cointegración / CCL implícito (según sección)
+    if seccion == "argentina":
+        st.subheader("CCL implícito por empresa")
+        pares_cfg = assets_cfg[seccion].get("pares", [])
+        equiv = assets_cfg[seccion].get("equivalencias", {})
+        mostrar_ccl(pares_cfg, equiv)
+    else:
+        st.subheader("Cointegración de pares")
+        if pares:
+            coint = obtener_cointegracion(seccion, pares)
+            if coint.empty:
+                st.info("Sin resultados de cointegración guardados aún.")
+            else:
+                st.dataframe(
+                    coint.style.format({"p-valor": "{:.4f}", "Beta": "{:.2f}",
+                                        "Vida media (velas)": "{:.1f}", "Estabilidad %": "{:.0f}%"}, na_rep="-"),
+                    use_container_width=True,
+                )
 
     # c.b) Ratios con z-score (según sección)
     if seccion == "metales":
@@ -450,6 +456,87 @@ def render_seccion(seccion):
     # g) Cómo leer esto (adaptado a la sección)
     with st.expander("Cómo leer esto"):
         st.markdown(NOTAS_SECCION.get(seccion, NOTAS_BASE))
+
+
+@st.cache_data(ttl=900)
+def ccl_serie(local, adr, ratio, tf):
+    """CCL implícito = precio_local * ratio / precio_ADR, alineado por timestamp."""
+    db = DatabaseManager()
+    dl = db.load_candles(local, tf)
+    da = db.load_candles(adr, tf)
+    if dl.empty or da.empty:
+        return pd.Series(dtype=float)
+    if tf == "1D":
+        a = dl.set_index(dl["timestamp"].dt.date)["close"].sort_index()
+        b = da.set_index(da["timestamp"].dt.date)["close"].sort_index()
+        idx = a.index.intersection(b.index)
+        return (a.loc[idx] * ratio / b.loc[idx]).sort_index()
+    a = dl.set_index("timestamp")["close"].sort_index()
+    b = da.set_index("timestamp")["close"].sort_index()
+    idx = a.index.intersection(b.index)
+    return (a.loc[idx] * ratio / b.loc[idx]).sort_index()
+
+
+def mostrar_ccl(pares_cfg, equiv):
+    """Tabla de CCL por empresa + mediana con z-score y percentil; dispersión destacada."""
+    ccl_1d = {}
+    for p in pares_cfg:
+        adr_sym = p["adr"]
+        ratio = equiv.get(adr_sym.split("/")[0]) or equiv.get(adr_sym)
+        s = ccl_serie(p["local"], p["adr"], ratio, "1D") if ratio else pd.Series(dtype=float)
+        ccl_1d[p["nombre"]] = s
+
+    hoy = max((s.index.max() for s in ccl_1d.values() if not s.empty), default=None)
+    filas = []
+    serie_hoy = []
+    for p in pares_cfg:
+        s = ccl_1d.get(p["nombre"], pd.Series(dtype=float))
+        val = float(s.loc[hoy]) if hoy in s.index else (float(s.iloc[-1]) if not s.empty else None)
+        serie_hoy.append(val)
+        filas.append({"Empresa": p["nombre"], "Local": p["local"], "ADR": p["adr"],
+                      "Equiv.": equiv.get(p["adr"]), "CCL implícito": val})
+
+    df = pd.DataFrame(filas)
+    mediana = float(pd.Series(serie_hoy).median()) if serie_hoy else None
+    if mediana:
+        df["% vs mediana"] = df["CCL implícito"].apply(lambda v: (v / mediana - 1) * 100 if v else None)
+    styled = df.style.format({"CCL implícito": "{:,.1f}", "% vs mediana": "{:+.1f}%"}, na_rep="-")
+
+    def lejos(v):
+        try:
+            return "background-color: #f8cbad" if abs(float(v)) > 5 else ""
+        except (TypeError, ValueError):
+            return ""
+
+    styled = styled.map(lejos, subset=["% vs mediana"])
+    st.dataframe(styled, use_container_width=True)
+
+    # Mediana histórica + z-score
+    series = [s.rename(k) for k, s in ccl_1d.items() if not s.empty]
+    if series:
+        med = pd.concat(series, axis=1).median(axis=1).dropna()
+        med = med.sort_index()
+        med.index = pd.to_datetime(med.index, utc=True)
+        if len(med) > 60:
+            from src.calc.zscore import get_latest_zscore
+
+            dfp = pd.DataFrame({"timestamp": med.index, "open": med.values, "high": med.values,
+                                "low": med.values, "close": med.values, "volume": 0.0})
+            dfp["timestamp"] = pd.to_datetime(dfp["timestamp"], utc=True)
+            z = get_latest_zscore(dfp)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("CCL mediana (hoy)", f"${med.iloc[-1]:,.0f}")
+            c2.metric("Z-score CCL", f"{z['z_atr']:+.2f}" if z["z_atr"] is not None else "-")
+            c3.metric("Percentil histórico", f"{z['z_percentile']:.0f}%" if z["z_percentile"] is not None else "-")
+            st.caption(f"Mediana calculada con {len(series)} empresas. Si una empresa se aleja >5% de la mediana, se resalta en naranja.")
+
+    st.caption(
+        "Horarios comunes BYMA–NYSE para intradía: aprox. **11:00–17:00 hora Argentina** "
+        "(14:00–20:00 UTC; en horario de verano de EE.UU. el solape empieza antes). "
+        "Afuera de esa ventana, solo usar el cierre del día (1D). No usamos cointegración local/ADR "
+        "porque el CCL depende del dólar entre mercados y no es estable. "
+        "Pendiente: brecha CCL/oficial BCRA (sin fuente gratuita simple configurada todavía)."
+    )
 
 
 def mostrar_ratio(r, nombre):
@@ -512,7 +599,7 @@ def main():
     with tabs[4]:
         render_seccion("cripto")
     with tabs[5]:
-        render_en_construccion()
+        render_seccion("argentina")
 
 
 if __name__ == "__main__":
