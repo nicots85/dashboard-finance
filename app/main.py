@@ -406,6 +406,33 @@ def render_seccion(seccion):
             mostrar_ratio(ratio_zscore("ETH/USDT", "BTC/USDT"), "ETH/BTC")
         with c2:
             mostrar_ratio(ratio_zscore("SOL/USDT", "BTC/USDT"), "SOL/BTC")
+    elif seccion == "smallcaps":
+        st.subheader("Fuerza relativa: IWM vs ^GSPC")
+        mostrar_ratio(ratio_zscore("IWM", "^GSPC"), "IWM/^GSPC")
+    elif seccion == "equity":
+        st.subheader("Mapa de calor: z-score (ATR) por temporalidad")
+        z_rows = []
+        for sym in activos:
+            fila = {"Activo": sym}
+            for tf in ALL_TF:
+                zz = zdf[(zdf.symbol == sym) & (zdf.timeframe == tf)]
+                fila[tf] = float(zz["z_atr"].iloc[0]) if not zz.empty else None
+            z_rows.append(fila)
+        df_heat = pd.DataFrame(z_rows).set_index("Activo")
+        # ordenar por z de 1D (líder arriba)
+        df_heat = df_heat.sort_values("1D", ascending=False, na_position="last")
+        import plotly.express as px
+
+        fig = px.imshow(
+            df_heat.astype(float),
+            color_continuous_scale="RdYlGn",
+            color_continuous_midpoint=0,
+            aspect="auto",
+            labels=dict(color="Z-ATR"),
+        )
+        fig.update_layout(height=max(300, 28 * len(df_heat)))
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Verde = extendido al alza (líder), rojo = débil (rezagado). Ordenado por z de 1D.")
 
     # d) Detalle por activo
     st.subheader("Detalle por activo")
@@ -479,9 +506,9 @@ def main():
     with tabs[1]:
         render_seccion("metales")
     with tabs[2]:
-        render_en_construccion()
+        render_seccion("equity")
     with tabs[3]:
-        render_en_construccion()
+        render_seccion("smallcaps")
     with tabs[4]:
         render_seccion("cripto")
     with tabs[5]:
