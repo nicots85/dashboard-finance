@@ -102,7 +102,8 @@ class SixTabsTextTests(unittest.TestCase):
     def test_six_tabs_have_no_exceptions_and_each_has_glossary(self):
         self.assertFalse(self.app.exception, [e.value for e in self.app.exception])
         self.assertEqual([t.label for t in self.app.tabs], ["Índices", "Metales", "Equity", "Small caps", "Cripto", "Argentina"])
-        self.assertEqual(sum(e.label == "Glosario" for e in self.app.expander), 6)
+        # C2 conserva también el glosario de la vista anterior dentro del piloto.
+        self.assertEqual(sum(e.label == "Glosario" for e in self.app.expander), 7)
 
     def test_every_rendered_column_and_metric_has_help(self):
         for element in self.app.dataframe:
@@ -136,9 +137,12 @@ class SixTabsTextTests(unittest.TestCase):
         labels = [asset_label(symbol) for symbol in catalog()[3]]
         for text in texts:
             plain = without_html(text)
+            explained = {symbol for symbol in catalog()[3] if asset_label(symbol) in plain}
             for label in sorted(labels, key=len, reverse=True):
                 plain = plain.replace(label, "")
             for symbol in catalog()[3]:
+                if symbol in explained:
+                    continue  # Puede repetirse el rótulo «VWAP de NQ=F» junto al nombre completo.
                 self.assertIsNone(re.search(r"(?<![\w^])" + re.escape(symbol) + r"(?!\w)", plain), f"Símbolo sin nombre: {symbol} en {text}")
 
 

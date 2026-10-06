@@ -1,0 +1,57 @@
+# C2: solo el piloto de Índices. No modifica los motores de las otras pestañas.
+names:
+  "NQ=F": "Nasdaq 100 — futuro de referencia"
+  QQQ: "Nasdaq 100 — fondo cotizado de referencia"
+  "ES=F": "S&P 500 — futuro de referencia"
+  SPY: "S&P 500 — fondo cotizado de referencia"
+  "YM=F": "Dow Jones — futuro de referencia"
+  DIA: "Dow Jones — fondo cotizado de referencia"
+  "RTY=F": "Russell 2000 — futuro de referencia"
+references:
+  "^NDX": ["NQ=F", QQQ]
+  "^GSPC": ["ES=F", SPY]
+  "^DJI": ["YM=F", DIA]
+  "^RUT": ["RTY=F", IWM]
+  "^GDAXI": []
+  "^N225": []
+calendars:
+  "^NDX": NASDAQ
+  "^GSPC": NYSE
+  "^DJI": NYSE
+  "^RUT": NYSE
+  "^GDAXI": XETR
+  "^N225": JPX
+  "NQ=F": CME_Equity
+  "ES=F": CME_Equity
+  "YM=F": CME_Equity
+  "RTY=F": CME_Equity
+  QQQ: NASDAQ
+  SPY: NYSE
+  DIA: NYSE
+  IWM: NYSE
+default_ranges:
+  "1m": {sessions: 2}
+  "5m": {sessions: 5}
+  "15m": {sessions: 10}
+  "1h": {months: 1}
+  "4h": {months: 3}
+  "1D": {years: 2}
+vwap:
+  price: typical  # (máximo + mínimo + cierre) / 3, del MISMO instrumento que el volumen
+  bands: [1, 2]
+  minimum_volume_coverage: 0.95
+daily_means: [50, 200]
+relative_strength_sessions: 20
+cointegration:
+  primary_window: 500
+  contrast_window: 1000
+  short_spread_window: 250
+  long_baseline: full_history
+  required_blocks: 5
+  stable_blocks: 4
+  p_threshold: 0.05
+  johansen_diff_lags: 1
+  rolling_step: 21
+cfdfuture_comparison:
+  status: pending
+  label: "Comparación de NQ=F frente al CFD USTEC: pendiente de tu validación con el bróker."

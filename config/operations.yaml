@@ -24,11 +24,11 @@ cme_vwap_session:
   complete_end: "17:00"
   regular_start: "09:30"
   regular_end: "16:00"
-  default: null  # Lo elige el usuario; no asumir validación de NQ frente al CFD.
+  default: complete  # Usuario: reinicio 18:00 Nueva York. No valida NQ frente al CFD.
 
 platform_4h:
   label: "Horario de mi plataforma"
-  timezone: null
-  candle_open_times: []
+  timezone: UTC
+  candle_open_times: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"]
   verified: false
   current_label: "UTC: 00:00, 04:00, 08:00, 12:00, 16:00 y 20:00; pendiente de validar con la plataforma"

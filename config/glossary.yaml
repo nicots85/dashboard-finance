@@ -133,6 +133,13 @@ terminos:
   VIXCLS: "Serie de cierre del indicador VIX de volatilidad esperada del S&P 500."
   DTWEXBGS: "Índice del dólar frente a una canasta amplia de monedas; no es el tipo de cambio peso/dólar."
   BAMLH0A0HYM2: "Diferencia de tasas de bonos corporativos estadounidenses de mayor riesgo frente a su referencia; se expresa en puntos porcentuales."
+  "NQ=F": "Futuro Nasdaq 100 de Yahoo. Su precio y volumen se usan juntos para el VWAP del piloto; la comparación con el CFD está pendiente."
+  QQQ: "Fondo cotizado que sigue Nasdaq 100; el piloto lo usa como alternativa durante la rueda regular de acciones."
+  "ES=F": "Futuro del S&P 500 de Yahoo, referencia negociable distinta del índice."
+  SPY: "Fondo cotizado que sigue el S&P 500, con precio y volumen propios."
+  "YM=F": "Futuro del Dow Jones de Yahoo, con precio y volumen propios."
+  DIA: "Fondo cotizado que sigue el Dow Jones, con precio y volumen propios."
+  "RTY=F": "Futuro del Russell 2000 de Yahoo; alternativa para el índice cuyo volumen intradía es cero."
 
 comunes:
   - activo

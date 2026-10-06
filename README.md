@@ -168,6 +168,23 @@ python test_c1.py
 **[Qué comparar visualmente y aclaraciones sobre C0/iCloud](docs/C1.md)**
 · **[Pendientes para C2, incluido el caso Solana](docs/pending.md)**
 
+## Piloto de Índices (C2)
+
+```bash
+pip install -r requirements.txt
+python update_indices_references.py
+streamlit run app/main.py
+```
+
+Índices tiene lectura resumida, alineación, fuerza relativa, VWAP de instrumentos
+de referencia y comparación de pares diaria. La sesión predeterminada elegida
+es completa (18:00 Nueva York), las velas 4h siguen en UTC provisional y la
+comparación con el CFD está pendiente. Las otras cinco pestañas conservan su
+pantalla anterior. Dentro de Índices está **Vista anterior (para comparar)**.
+
+**[Cálculos, limitaciones y guía de comparación con tu plataforma](docs/C2.md)**.
+Las fotos del historial no se implementan hasta C3.
+
 ---
 
 ## Git: guardar y sincronizar cambios

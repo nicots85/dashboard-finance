@@ -1,12 +1,13 @@
 # ── Dependencias del proyecto dashboard-finance ──
-pandas
+pandas>=2.0
 numpy
 statsmodels
 yfinance
 ccxt
 fredapi
 python-dotenv
-streamlit
+streamlit>=1.64.0
 plotly
 pyyaml
 matplotlib
+pandas-market-calendars>=5.0

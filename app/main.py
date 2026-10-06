@@ -30,6 +30,7 @@ from src.presentation import (  # noqa: E402
     asset_label, pair_label, entity_label, definition, help_text,
     explain_symbols, rich_text, section_terms, column_specs, TF_LABELS, refresh_catalog,
 )
+from app.indices import render_indices  # noqa: E402
 from src.calc import (  # noqa: E402
     compute_market_regime_history,
     compute_zscore_history,
@@ -638,29 +639,7 @@ def render_en_construccion():
 # ----------------------------------------------------------------------
 # App principal
 # ----------------------------------------------------------------------
-def main():
-    refresh_catalog()
-    st.title("📊 Dashboard Financiero")
-    db = DatabaseManager(DB_PATH)
-    signature = db.data_signature()
-    if st.session_state.get("data_signature") != signature:
-        st.cache_data.clear()
-        st.session_state["data_signature"] = signature
-    with open(os.path.join(ROOT, "config", "calc.yaml"), encoding="utf-8") as file:
-        calc_config = yaml.safe_load(file)
-    health = db.get_calculation_health(calc_config)
-    st.session_state["calculation_health"] = health
-    pending = [h for h in health if h["status"] != "ok"]
-    if pending:
-        st.warning(f"Hay {len(pending)} resultados desactualizados, no calculables o sin versión comprobable. Revisá las fechas de cálculo y datos usados; los valores anteriores no se presentan como recién actualizados.")
-    notices = db.get_data_notices()
-    if notices:
-        with st.expander(f"Avisos de descargas y datos ({len(notices)})"):
-            for notice in notices[:30]:
-                st.markdown(rich_text(entity_label(notice['asset']) + " · " + TF_LABELS.get(notice['timeframe'], notice['timeframe']) + ": " + explain_symbols(notice['message'])), unsafe_allow_html=True)
-            if len(notices) > 30:
-                st.caption("El registro completo puede consultarse con check_data.py.")
-
+def global_update_controls():
     # Botón actualizar
     if "tf_update" not in st.session_state:
         st.session_state.tf_update = None
@@ -689,9 +668,32 @@ def main():
         else:
             st.success(f"✅ Descarga y cálculos terminaron ({target_tfs}). Revisá las fechas y avisos para ver qué series recibieron datos nuevos.")
 
+def main():
+    refresh_catalog()
+    st.title("📊 Dashboard Financiero")
+    db = DatabaseManager(DB_PATH)
+    signature = db.data_signature()
+    if st.session_state.get("data_signature") != signature:
+        st.cache_data.clear()
+        st.session_state["data_signature"] = signature
+    with open(os.path.join(ROOT, "config", "calc.yaml"), encoding="utf-8") as file:
+        calc_config = yaml.safe_load(file)
+    health = db.get_calculation_health(calc_config)
+    st.session_state["calculation_health"] = health
+    pending = [h for h in health if h["status"] != "ok"]
+    if pending:
+        st.warning(f"Hay {len(pending)} resultados desactualizados, no calculables o sin versión comprobable. Revisá las fechas de cálculo y datos usados; los valores anteriores no se presentan como recién actualizados.")
+    notices = db.get_data_notices()
+    if notices:
+        with st.expander(f"Avisos de descargas y datos ({len(notices)})"):
+            for notice in notices[:30]:
+                st.markdown(rich_text(entity_label(notice['asset']) + " · " + TF_LABELS.get(notice['timeframe'], notice['timeframe']) + ": " + explain_symbols(notice['message'])), unsafe_allow_html=True)
+            if len(notices) > 30:
+                st.caption("El registro completo puede consultarse con check_data.py.")
+    global_update_controls()
     tabs = st.tabs(["Índices", "Metales", "Equity", "Small caps", "Cripto", "Argentina"])
     with tabs[0]:
-        render_seccion("indices")
+        render_indices(DB_PATH, render_seccion)
     with tabs[1]:
         render_seccion("metales")
     with tabs[2]:
