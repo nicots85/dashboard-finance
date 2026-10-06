@@ -137,6 +137,7 @@ def render_detail(db_path, signature, pilot, ops, frames):
             disabled=not reference.endswith("=F"), key="pilot_vwap_session_" + reference,
             help="Sesión completa hasta las 17:00 del día siguiente; sesión regular de acciones hasta las 16:00. Se ajusta al cambio de hora de Nueva York.")
         mode = selected if reference.endswith("=F") else "regular"
+        st.caption("Sesión de VWAP: **configuración provisional** (elegida para empezar; la confirmás vos).")
     if reference == "NQ=F":
         st.info("Comparación de " + asset_label(reference) + " con tu CFD USTEC: pendiente de tu validación con el bróker.")
     if tf == "4h":

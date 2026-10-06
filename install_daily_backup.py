@@ -75,7 +75,7 @@ def main():
     directory.mkdir(parents=True, exist_ok=True)
     logs.mkdir(parents=True, exist_ok=True)
     python = os.path.abspath(sys.executable)  # No resolver el enlace: conserva el entorno .venv.
-    script = str(ROOT / "backup_data.py")
+    script = str(ROOT / "daily_run.py")  # respaldo + update + run_calc + foto del tablero
     system = platform.system()
     try:
         if system == "Darwin":
@@ -100,6 +100,7 @@ def main():
         return 1
     print(f"✅ Tarea {'instalada' if args.instalar else 'preparada, NO activada'} para las {hour:02d}:{minute:02d}, hora local de esta máquina.")
     print(f"   Archivo de configuración: {file}")
+    print("   La tarea corre daily_run.py: respaldo + descarga + cálculos + foto del tablero.")
     print("   Funciona sin abrir Streamlit; requiere equipo encendido y sesión de usuario iniciada.")
     return 0
 

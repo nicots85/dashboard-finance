@@ -183,6 +183,20 @@ comparación con el CFD está pendiente. Las otras cinco pestañas conservan su
 pantalla anterior. Dentro de Índices está **Vista anterior (para comparar)**.
 
 **[Cálculos, limitaciones y guía de comparación con tu plataforma](docs/C2.md)**.
+
+## Historial del tablero (C3)
+
+El desplegable **Historial** recuerda lo que decía el tablero en cada momento:
+KPIs, dirección, distancia, cointegración, CCL y macro. Se guarda una foto en
+cada actualización manual y otra programada a las 21:15 (`daily_run.py`).
+Abrir la app o cambiar un selector **no** crea fotos. Se puede exportar/importar
+entre máquinas sin duplicar.
+
+```bash
+python test_c3.py
+```
+
+**[Formato, cuándo se guarda, tamaño y guía](docs/C3.md)**.
 Las fotos del historial no se implementan hasta C3.
 
 ---

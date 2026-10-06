@@ -25,6 +25,7 @@ cme_vwap_session:
   regular_start: "09:30"
   regular_end: "16:00"
   default: complete  # Usuario: reinicio 18:00 Nueva York. No valida NQ frente al CFD.
+  provisional: true  # Mostrar en pantalla hasta que el usuario la confirme.
 
 platform_4h:
   label: "Horario de mi plataforma"
