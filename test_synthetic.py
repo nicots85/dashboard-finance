@@ -147,8 +147,9 @@ def test_weak_trend_synthetic():
     })
 
     reg = get_latest_market_regime(df)
-    assert reg["direction"] == "alcista (débil)", f"Fallo: se esperaba 'alcista (débil)', se obtuvo '{reg['direction']}' (adx={reg['adx']})"
-    print(f"✅ Test 5 (Salto fuerte en serie plana): OK -> '{reg['direction']}' (ADX={reg['adx']:.1f})")
+    assert reg["direction"] == "alcista", f"Fallo: se esperaba 'alcista', se obtuvo '{reg['direction']}' (adx={reg['adx']})"
+    assert reg["strength"] == "débil", f"Fallo: se esperaba 'débil', se obtuvo '{reg['strength']}' (adx={reg['adx']})"
+    print(f"✅ Test 5 (Salto fuerte en serie plana): OK -> '{reg['direction']} {reg['strength']}' (ADX={reg['adx']:.1f})")
 
 
 def main():

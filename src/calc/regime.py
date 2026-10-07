@@ -87,6 +87,7 @@ def compute_market_regime_history(
         out["atr"] = np.nan
         out["atr_percentile"] = np.nan
         out["direction"] = "sin datos"
+        out["strength"] = "sin datos"
         out["volatility"] = "sin datos"
         out["regime"] = "sin datos"
         return out
@@ -107,26 +108,29 @@ def compute_market_regime_history(
     atr = calculate_atr(out, period=atr_period)
     out["atr"] = atr
 
-    # 3. Clasificación de Dirección
-    # Lateral si ADX < umbral (mercado sin tendencia fuerte)
-    # Si ADX >= umbral: alcista si ema_slope > 0, bajista si ema_slope < 0
-    # Excepción 'débil': si ADX < umbral pero el z-ATR es extremo (|z| > umbral)
-    # y la pendiente de la EMA confirma, se etiqueta 'alcista (débil)' / 'bajista (débil)'.
+    # 3. Clasificación de Dirección (Alt 1)
+    # Dirección = signo de la pendiente de la EMA, con zona "plana" cuando
+    # la pendiente es pequeña (umbral relativo al ATR)
     atr_safe = atr.replace(0, np.nan)
     z_atr = (out["close"] - ema) / atr_safe
     out["z_atr"] = z_atr
-
-    weak_up = (adx < adx_threshold_lateral) & (z_atr > weak_trend_z) & (ema_slope > 0)
-    weak_down = (adx < adx_threshold_lateral) & (z_atr < -weak_trend_z) & (ema_slope < 0)
+    slope_threshold = 0.1 * atr_safe  # 10% del ATR como umbral de "plana"
 
     conditions_dir = [
-        (adx >= adx_threshold_lateral) & (ema_slope > 0),
-        (adx >= adx_threshold_lateral) & (ema_slope <= 0),
-        weak_up,
-        weak_down,
+        (ema_slope > slope_threshold),
+        (ema_slope < -slope_threshold),
     ]
-    choices_dir = ["alcista", "bajista", "alcista (débil)", "bajista (débil)"]
+    choices_dir = ["alcista", "bajista"]
     out["direction"] = np.select(conditions_dir, choices_dir, default="lateral")
+
+    # 4. Clasificación de Fuerza (Alt 1)
+    # Fuerza = ADX en tres niveles
+    conditions_strength = [
+        (adx < adx_threshold_lateral),  # débil
+        (adx > 25),  # fuerte
+    ]
+    choices_strength = ["débil", "fuerte"]
+    out["strength"] = np.select(conditions_strength, choices_strength, default="media")
 
     # Percentil móvil del ATR respecto a su ventana histórica
     def rolling_pct(x):
@@ -152,8 +156,8 @@ def compute_market_regime_history(
     out.loc[out["adx"].isna() | out["ema"].isna(), "direction"] = "sin datos"
     out.loc[out["atr_percentile"].isna(), "volatility"] = "normal vol"
 
-    # 6. Etiqueta combinada
-    out["regime"] = out["direction"] + " / " + out["volatility"]
+    # 6. Etiqueta combinada (Alt 1)
+    out["regime"] = out["direction"] + " " + out["strength"] + " / " + out["volatility"]
     out.loc[out["direction"] == "sin datos", "regime"] = "sin datos"
 
     return out
@@ -179,6 +183,7 @@ def get_latest_market_regime(
     if df.empty or len(df) < 20:
         return {
             "direction": "sin datos",
+            "strength": "sin datos",
             "volatility": "sin datos",
             "regime": "sin datos",
             "adx": None,
@@ -192,7 +197,7 @@ def get_latest_market_regime(
     # Misma fórmula sobre TODA la historia, sin calcular percentiles de cada
     # vela anterior cuando solo se necesita el último (fundamental para 1m).
     if len(df) < max(ema_p, adx_p, atr_p) + 5:
-        return {"direction": "sin datos", "volatility": "sin datos", "regime": "sin datos",
+        return {"direction": "sin datos", "strength": "sin datos", "volatility": "sin datos", "regime": "sin datos",
                 "adx": None, "atr": None, "atr_percentile": None, "ema": None,
                 "close": float(df["close"].iloc[-1]) if pd.notna(df["close"].iloc[-1]) else None,
                 "timestamp": df["timestamp"].iloc[-1]}
@@ -205,20 +210,25 @@ def get_latest_market_regime(
     pct = (recent_atr <= atr.iloc[-1]).mean() * 100 if len(recent_atr) >= 20 and pd.notna(atr.iloc[-1]) else np.nan
     if pd.isna(adx) or pd.isna(ema.iloc[-1]):
         direction = "sin datos"
-    elif adx >= adx_th and slope > 0:
-        direction = "alcista"
-    elif adx >= adx_th and slope <= 0:
-        direction = "bajista"
-    elif adx < adx_th and z > weak_z and slope > 0:
-        direction = "alcista (débil)"
-    elif adx < adx_th and z < -weak_z and slope < 0:
-        direction = "bajista (débil)"
+        strength = "sin datos"
     else:
-        direction = "lateral"
+        slope_threshold = 0.1 * atr.iloc[-1]
+        if slope > slope_threshold:
+            direction = "alcista"
+        elif slope < -slope_threshold:
+            direction = "bajista"
+        else:
+            direction = "lateral"
+        if adx < adx_th:
+            strength = "débil"
+        elif adx > 25:
+            strength = "fuerte"
+        else:
+            strength = "media"
     volatility = "baja vol" if pct < vol_low else "alta vol" if pct > vol_high else "normal vol"
     return {
-        "direction": direction, "volatility": volatility,
-        "regime": "sin datos" if direction == "sin datos" else direction + " / " + volatility,
+        "direction": direction, "strength": strength, "volatility": volatility,
+        "regime": "sin datos" if direction == "sin datos" else direction + " " + strength + " / " + volatility,
         "adx": float(adx) if pd.notna(adx) else None,
         "atr": float(atr.iloc[-1]) if pd.notna(atr.iloc[-1]) else None,
         "atr_percentile": float(pct) if pd.notna(pct) else None,

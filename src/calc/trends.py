@@ -34,8 +34,6 @@ def compute_multi_timeframe_trends(
     color_map = {
         "alcista": "verde",
         "bajista": "rojo",
-        "alcista (débil)": "verde claro",
-        "bajista (débil)": "rojo claro",
         "lateral": "gris",
         "sin datos": "sin datos",
     }
@@ -51,7 +49,15 @@ def compute_multi_timeframe_trends(
                 df = df[df.closed]
             reg = market_results(df, {"regime": regime_config or {}})[0] if tf == "4h" else get_latest_market_regime(df, config=regime_config)
             direction = reg["direction"]
-            result["trends"][tf] = direction
+            strength = reg.get("strength", "media")
+            # Alt 1: combinar dirección y fuerza
+            if direction == "sin datos":
+                label = "sin datos"
+            elif direction == "lateral":
+                label = "lateral"
+            else:
+                label = f"{direction.capitalize()} {strength}"
+            result["trends"][tf] = label
             result["colors"][tf] = color_map.get(direction, "gris")
 
     return result

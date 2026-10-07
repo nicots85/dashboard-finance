@@ -19,7 +19,7 @@ from src.data.db_manager import DEFAULT_DB_PATH
 from src.data.four_hour import series_descriptor, policy
 from src.indices_math import alignment, prepare_bars, session_vwap
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
 
@@ -124,6 +124,9 @@ def section_snapshot(conn, section, assets_cfg):
         directions = {}
         for r in regimes.get(sym, []):
             per_tf[r[1]] = {"direction": r[3], "regime": r[5], "last_data": r[2], "calculated_at": r[9]}
+            # Alt 1: agregar strength si está disponible
+            if "strength" in r.keys() and r["strength"] is not None:
+                per_tf[r[1]]["strength"] = r["strength"]
             directions[r[1]] = r[3]
             if r[1] == "4h":
                 descriptor = series_descriptor(sym, conn)
@@ -233,7 +236,7 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
         conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
             photo_id, now.isoformat(timespec="seconds"), machine_name(), trigger, status, int(late),
             app_version(), config_hash(), json.dumps(tfs_scope or ALL_TF), json.dumps(errors or [], ensure_ascii=False),
-            json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "alignment_format": 1, "sections": sections}, ensure_ascii=False, default=str)))
+            json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "alignment_format": 1, "direction_definition": "alt1", "sections": sections}, ensure_ascii=False, default=str)))
         conn.commit()
         return photo_id
     finally:
@@ -250,6 +253,7 @@ def list_photos(db_path=DEFAULT_DB_PATH, limit=200):
         for r in rows:
             item = dict(zip(["id", "created_at", "machine", "trigger", "status", "late", "app_version", "params_hash", "tfs_scope", "errors"], r[:10]))
             item["four_hour_label"] = "4h versionada" if json.loads(r[10]).get("four_hour_format") == 2 else "4h antigua"
+            item["direction_definition_label"] = "definición Alt 1" if json.loads(r[10]).get("direction_definition") == "alt1" else "definición antigua"
             photos.append(item)
         return photos
     finally:
@@ -269,6 +273,7 @@ def get_photo(photo_id, db_path=DEFAULT_DB_PATH):
         data["content"] = json.loads(data.pop("sections_json"))
         # Marca derivada al leer; NO reescribe ni completa contenido histórico.
         data["four_hour_label"] = "4h versionada" if data["content"].get("four_hour_format") == 2 else "4h antigua"
+        data["direction_definition_label"] = "definición Alt 1" if data["content"].get("direction_definition") == "alt1" else "definición antigua"
         return data
     finally:
         conn.close()

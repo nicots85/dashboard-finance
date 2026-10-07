@@ -679,6 +679,7 @@ def render_historial():
         pid = st.selectbox("Foto", list(labels), format_func=lambda i: labels[i], key="hist_photo")
         photo = get_photo(pid, DB_PATH)
         st.caption("Serie usada en esa foto: " + photo["four_hour_label"])
+        st.caption("Definición de dirección: " + photo.get("direction_definition_label", "definición antigua"))
         with st.expander("Versiones 4h de esa foto"):
             if photo["four_hour_label"] == "4h antigua":
                 st.write("4h antigua. La foto no se modifica ni se recalcula con la serie nueva.")
