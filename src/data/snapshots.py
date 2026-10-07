@@ -10,14 +10,16 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
 from src.data.backup import ROOT
 from src.data.db_manager import DEFAULT_DB_PATH
-from src.data.four_hour import series_descriptor
+from src.data.four_hour import series_descriptor, policy
+from src.indices_math import alignment, prepare_bars, session_vwap
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
 
@@ -61,6 +63,55 @@ def latest_calc_rows(conn, table, section_assets):
     return out
 
 
+def _instrument_and_session(sym):
+    spec = policy(sym)
+    if spec and spec["method"] == "future_utc":
+        return spec["reference"], "CME_Equity"
+    if "/" in sym:
+        return sym, "24/7"
+    if sym.endswith(".BA"):
+        return sym, "America/Argentina/Buenos_Aires"
+    if sym == "^GDAXI":
+        return sym, "Europe/Berlin"
+    if sym == "^N225":
+        return sym, "Asia/Tokyo"
+    if sym.endswith("=F"):
+        return sym, "CME_Equity"
+    return sym, "NYSE"
+
+
+def _distance_for_tf(conn, sym, tf):
+    df = pd.read_sql_query("SELECT timestamp,open,high,low,close,volume FROM candles WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 60",
+                           conn, params=(sym, tf))
+    df = df.iloc[::-1].reset_index(drop=True)
+    if df.empty or len(df) < 50:
+        return None
+    df["timestamp"] = pd.to_datetime(df.timestamp, utc=True, format="mixed")
+    instrument, session_name = _instrument_and_session(sym)
+    cal = "CME_Equity" if instrument.endswith("=F") else "NYSE"
+    if "/" in sym:
+        cal = "24/7"
+    elif sym.endswith(".BA"):
+        cal = "XBUE"
+    elif sym == "^GDAXI":
+        cal = "XETR"
+    elif sym == "^N225":
+        cal = "JPX"
+    bars = prepare_bars(df, instrument, tf, cal)
+    if bars.empty:
+        return None
+    ema50 = bars.close.ewm(span=50, adjust=False).mean()
+    dist_ema = float((bars.close.iloc[-1] - ema50.iloc[-1]) / ema50.iloc[-1] * 100) if len(ema50) else None
+    dist_vwap = None
+    try:
+        vw = session_vwap(bars)
+        if vw.vwap.notna().any() and vw.vwap.iloc[-1] > 0:
+            dist_vwap = float((vw.close.iloc[-1] - vw.vwap.iloc[-1]) / vw.vwap.iloc[-1] * 100)
+    except Exception:
+        pass
+    return {"ema50_pct": dist_ema, "vwap_pct": dist_vwap, "instrument": instrument, "session": session_name}
+
+
 def section_snapshot(conn, section, assets_cfg):
     conn.row_factory = sqlite3.Row
     assets = assets_cfg[section].get("activos", [])
@@ -70,8 +121,10 @@ def section_snapshot(conn, section, assets_cfg):
     direction_counts = {"alcista": 0, "bajista": 0, "lateral": 0, "débil": 0, "sin datos": 0}
     for sym in assets:
         per_tf = {}
+        directions = {}
         for r in regimes.get(sym, []):
             per_tf[r[1]] = {"direction": r[3], "regime": r[5], "last_data": r[2], "calculated_at": r[9]}
+            directions[r[1]] = r[3]
             if r[1] == "4h":
                 descriptor = series_descriptor(sym, conn)
                 version = r["series_version"] if "series_version" in r.keys() else None
@@ -81,6 +134,12 @@ def section_snapshot(conn, section, assets_cfg):
                 per_tf[r[1]]["series_4h"] = {**descriptor, "version": version or "4h-antigua"}
                 from src.presentation import asset_label
                 per_tf[r[1]]["display_name"] = asset_label(sym, "4h") if version else asset_label(sym)
+        for tf in ALL_TF:
+            if tf in per_tf:
+                dist = _distance_for_tf(conn, sym, tf)
+                if dist:
+                    per_tf[tf]["distance"] = dist
+        align = alignment(directions)
         z1d = next((r for r in zscores.get(sym, []) if r[1] == "1D"), None)
         last = max((r[2] for r in regimes.get(sym, [])), default=None)
         direction_counts["alcista"] += sum(1 for v in per_tf.values() if str(v["direction"]).startswith("alcista"))
@@ -90,6 +149,9 @@ def section_snapshot(conn, section, assets_cfg):
         asset_rows.append({
             "symbol": sym,
             "timeframes": per_tf,
+            "alignment": {"up": align["up"], "down": align["down"], "weak": align["weak"],
+                          "available": align["available"], "missing": align["missing"],
+                          "missing_timeframes": [tf for tf in ALL_TF if tf not in directions]},
             "z_atr_1d": z1d[3] if z1d else None,
             "z_std_1d": z1d[4] if z1d else None,
             "z_percentile_1d": z1d[6] if z1d else None,
@@ -171,7 +233,7 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
         conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
             photo_id, now.isoformat(timespec="seconds"), machine_name(), trigger, status, int(late),
             app_version(), config_hash(), json.dumps(tfs_scope or ALL_TF), json.dumps(errors or [], ensure_ascii=False),
-            json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "sections": sections}, ensure_ascii=False, default=str)))
+            json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "alignment_format": 1, "sections": sections}, ensure_ascii=False, default=str)))
         conn.commit()
         return photo_id
     finally:

@@ -29,6 +29,17 @@ class SnapshotTests(unittest.TestCase):
         p = get_photo(pid, self.db)
         self.assertIn("sections", p["content"])
         self.assertEqual(p["content"]["schema_version"], SCHEMA_VERSION)
+        self.assertEqual(p["content"]["alignment_format"], 1)
+        asset = next(a for a in p["content"]["sections"]["indices"]["assets"] if a["symbol"] == "^NDX")
+        self.assertIn("alignment", asset)
+        self.assertIn("up", asset["alignment"])
+        self.assertIn("down", asset["alignment"])
+        self.assertIn("missing_timeframes", asset["alignment"])
+        tf4h = asset["timeframes"].get("4h", {})
+        self.assertIn("distance", tf4h)
+        self.assertIn("ema50_pct", tf4h["distance"])
+        self.assertIn("instrument", tf4h["distance"])
+        self.assertEqual(tf4h["distance"]["instrument"], "NQ=F")
 
     def test_old_schema_version_remains_readable(self):
         conn = sqlite3.connect(self.db)

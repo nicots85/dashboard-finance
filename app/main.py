@@ -688,6 +688,19 @@ def render_historial():
                         timeframe = item.get("timeframes", {}).get("4h", {})
                         version = timeframe.get("series_4h", {})
                         st.write(f"{timeframe.get('display_name', asset_label(item['symbol']))}: {version.get('label', '4h antigua')} · {version.get('version', '4h-antigua')}")
+        with st.expander("Alineación y distancia por activo"):
+            for name, section in photo["content"].get("sections", {}).items():
+                for item in section.get("assets", []):
+                    sym = item["symbol"]
+                    align = item.get("alignment", {})
+                    if align:
+                        st.write(f"**{asset_label(sym)}**: {align.get('up', 0)}↑ / {align.get('down', 0)}↓ / {align.get('weak', 0)} débiles de {align.get('available', 0)} disponibles; faltan {align.get('missing_timeframes', [])}")
+                    for tf, data in item.get("timeframes", {}).items():
+                        dist = data.get("distance", {})
+                        if dist:
+                            ema = f"{dist.get('ema50_pct', 0):+.2f}%" if dist.get("ema50_pct") is not None else "—"
+                            vwap = f"{dist.get('vwap_pct', 0):+.2f}%" if dist.get("vwap_pct") is not None else "—"
+                            st.caption(f"{tf}: EMA50 {ema} · VWAP {vwap} · instrumento {dist.get('instrument', sym)} · sesión {dist.get('session', '—')}")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Resultado", photo["status"])
         c2.metric("Activadores", photo["trigger"])
