@@ -24,6 +24,16 @@ def parameters_hash(parameters):
 def candle_end(timestamp, symbol, timeframe, source):
     """Fin de vela según su rueda local; contempla DST y últimos bloques parciales."""
     ts = pd.to_datetime(timestamp, utc=True).to_pydatetime()
+    if timeframe == "4h" and str(source).startswith("via "):
+        # El símbolo base es un índice, pero el precio y horario son del futuro.
+        return candle_end(timestamp, str(source)[4:], timeframe, "yahoo")
+    if timeframe == "4h" and source == "session_4h_us":
+        from src.indices_math import schedule
+        local_date = ts.astimezone(ZoneInfo("America/New_York")).date()
+        sch = schedule("NYSE", str(local_date), str(local_date))
+        if len(sch):
+            closing = sch.market_close.iloc[0].to_pydatetime()
+            return min(ts + timedelta(hours=4), closing)
     crypto = "/" in symbol or source in {"binance", "bybit", "okx", "hyperliquid"}
     if crypto:
         if timeframe == "1D":

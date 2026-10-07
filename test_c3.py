@@ -9,15 +9,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.data.db_manager import DEFAULT_DB_PATH
-from src.data.snapshots import take_snapshot, list_photos, get_photo, export_photos, import_photos, changes_between, ensure_table
+from src.data.snapshots import take_snapshot, list_photos, get_photo, export_photos, import_photos, changes_between, ensure_table, SCHEMA_VERSION
 
 
 class SnapshotTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = str(Path(self.tmp.name) / "t.db")
-        import shutil
-        shutil.copy(DEFAULT_DB_PATH, self.db)
+        from src.data.backup import snapshot_database
+        snapshot_database(DEFAULT_DB_PATH, self.db)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -28,7 +28,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(len(photos), 1)
         p = get_photo(pid, self.db)
         self.assertIn("sections", p["content"])
-        self.assertEqual(p["content"]["schema_version"], 1)
+        self.assertEqual(p["content"]["schema_version"], SCHEMA_VERSION)
 
     def test_old_schema_version_remains_readable(self):
         conn = sqlite3.connect(self.db)

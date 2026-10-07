@@ -15,8 +15,9 @@ import yaml
 
 from src.data.backup import ROOT
 from src.data.db_manager import DEFAULT_DB_PATH
+from src.data.four_hour import series_descriptor
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
 
@@ -61,6 +62,7 @@ def latest_calc_rows(conn, table, section_assets):
 
 
 def section_snapshot(conn, section, assets_cfg):
+    conn.row_factory = sqlite3.Row
     assets = assets_cfg[section].get("activos", [])
     regimes = latest_calc_rows(conn, "calc_regimes", assets)
     zscores = latest_calc_rows(conn, "calc_zscores", assets)
@@ -70,6 +72,15 @@ def section_snapshot(conn, section, assets_cfg):
         per_tf = {}
         for r in regimes.get(sym, []):
             per_tf[r[1]] = {"direction": r[3], "regime": r[5], "last_data": r[2], "calculated_at": r[9]}
+            if r[1] == "4h":
+                descriptor = series_descriptor(sym, conn)
+                version = r["series_version"] if "series_version" in r.keys() else None
+                if version is None:
+                    descriptor = {"method": "legacy", "reference": sym, "label": "4h antigua",
+                                  "inputs": json.loads(r["input_versions_json"] or "[]")}
+                per_tf[r[1]]["series_4h"] = {**descriptor, "version": version or "4h-antigua"}
+                from src.presentation import asset_label
+                per_tf[r[1]]["display_name"] = asset_label(sym, "4h") if version else asset_label(sym)
         z1d = next((r for r in zscores.get(sym, []) if r[1] == "1D"), None)
         last = max((r[2] for r in regimes.get(sym, [])), default=None)
         direction_counts["alcista"] += sum(1 for v in per_tf.values() if str(v["direction"]).startswith("alcista"))
@@ -160,7 +171,7 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
         conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
             photo_id, now.isoformat(timespec="seconds"), machine_name(), trigger, status, int(late),
             app_version(), config_hash(), json.dumps(tfs_scope or ALL_TF), json.dumps(errors or [], ensure_ascii=False),
-            json.dumps({"schema_version": SCHEMA_VERSION, "sections": sections}, ensure_ascii=False, default=str)))
+            json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "sections": sections}, ensure_ascii=False, default=str)))
         conn.commit()
         return photo_id
     finally:
@@ -171,9 +182,14 @@ def list_photos(db_path=DEFAULT_DB_PATH, limit=200):
     conn = sqlite3.connect(db_path)
     try:
         ensure_table(conn)
-        rows = conn.execute("""SELECT id,created_at,machine,trigger,status,late,app_version,params_hash,tfs_scope,errors_json
+        rows = conn.execute("""SELECT id,created_at,machine,trigger,status,late,app_version,params_hash,tfs_scope,errors_json,sections_json
             FROM snapshot_photos ORDER BY created_at DESC LIMIT ?""", (limit,)).fetchall()
-        return [dict(zip(["id", "created_at", "machine", "trigger", "status", "late", "app_version", "params_hash", "tfs_scope", "errors"], r)) for r in rows]
+        photos = []
+        for r in rows:
+            item = dict(zip(["id", "created_at", "machine", "trigger", "status", "late", "app_version", "params_hash", "tfs_scope", "errors"], r[:10]))
+            item["four_hour_label"] = "4h versionada" if json.loads(r[10]).get("four_hour_format") == 2 else "4h antigua"
+            photos.append(item)
+        return photos
     finally:
         conn.close()
 
@@ -189,6 +205,8 @@ def get_photo(photo_id, db_path=DEFAULT_DB_PATH):
         data = dict(zip(cols, row))
         data["errors"] = json.loads(data.pop("errors_json"))
         data["content"] = json.loads(data.pop("sections_json"))
+        # Marca derivada al leer; NO reescribe ni completa contenido histórico.
+        data["four_hour_label"] = "4h versionada" if data["content"].get("four_hour_format") == 2 else "4h antigua"
         return data
     finally:
         conn.close()

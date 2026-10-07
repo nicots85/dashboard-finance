@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
 from src.data.audit import DataAuditMixin, initialize_audit, clock, stamp
+from src.data.four_hour import initialize_series, series_descriptor
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,7 @@ class DatabaseManager(DataAuditMixin):
                 """
             )
             initialize_audit(conn)
+            initialize_series(conn)
             conn.commit()
 
     def get_latest_candle_timestamp(self, symbol: str, timeframe: str) -> Optional[pd.Timestamp]:
@@ -336,7 +338,9 @@ class DatabaseManager(DataAuditMixin):
                 ),
             )
             self._calculation_metadata(conn, "calc_regimes", symbol, timeframe, ts_str, input_versions, params,
-                                       "no_calculable" if regime_data.get("direction") == "sin datos" else "ok")
+                                       "no_calculable" if regime_data.get("direction") == "sin datos" else "ok", regime_data.get("error_message"))
+            conn.execute("UPDATE calc_regimes SET series_version=? WHERE symbol=? AND timeframe=? AND timestamp=?",
+                         (regime_data.get("series_version"), symbol, timeframe, ts_str))
             conn.commit()
 
     def save_zscore_result(self, symbol: str, timeframe: str, z_data: Dict[str, Any], input_versions=None, params=None) -> None:
@@ -363,7 +367,9 @@ class DatabaseManager(DataAuditMixin):
                 ),
             )
             self._calculation_metadata(conn, "calc_zscores", symbol, timeframe, ts_str, input_versions, params,
-                                       "no_calculable" if z_data.get("z_atr") is None else "ok")
+                                       "no_calculable" if z_data.get("z_atr") is None else "ok", z_data.get("error_message"))
+            conn.execute("UPDATE calc_zscores SET series_version=? WHERE symbol=? AND timeframe=? AND timestamp=?",
+                         (z_data.get("series_version"), symbol, timeframe, ts_str))
             conn.commit()
 
     def save_cointegration_result(
@@ -440,7 +446,7 @@ class DatabaseManager(DataAuditMixin):
         end_date: Optional[str] = None,
     ) -> pd.DataFrame:
         """Carga velas guardadas para un activo en un DataFrame ordenado."""
-        query = "SELECT timestamp, open, high, low, close, volume, source FROM candles WHERE symbol = ? AND timeframe = ?"
+        query = "SELECT timestamp, open, high, low, close, volume, source, updated_at FROM candles WHERE symbol = ? AND timeframe = ?"
         params = [symbol, timeframe]
 
         if start_date:
@@ -456,11 +462,15 @@ class DatabaseManager(DataAuditMixin):
             conn.execute("BEGIN")
             version = self._input_version(conn, "candles", symbol, timeframe)
             df = pd.read_sql_query(query, conn, params=params)
+            descriptor = series_descriptor(symbol, conn) if timeframe == "4h" else None
 
         if not df.empty:
-            df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+            df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, format="mixed")
 
         df.attrs["data_version"] = version
+        df.attrs["timeframe"] = timeframe
+        if descriptor:
+            df.attrs["four_hour_series"] = descriptor
         return df
 
     def load_fred_series(self, series_id: str) -> pd.DataFrame:

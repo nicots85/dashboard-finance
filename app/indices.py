@@ -11,6 +11,7 @@ import yaml
 from src.data import DatabaseManager
 from src.data.backup import ROOT
 from src.calc.regime import get_latest_market_regime
+from src.data.four_hour import prepare_stored, market_results, sufficient_history, policy, series_descriptor
 from src.indices_math import (prepare_bars, freshness, alignment, daily_means, relative_performance,
     session_vwap, select_range, aggregate_4h, aggregate_regular_hours, unexpected_gaps, pair_analysis, ALIGNMENT_LEGEND, schedule)
 from src.presentation import asset_label, pair_label, help_text, TF_LABELS, section_terms, rich_text, definition
@@ -28,7 +29,7 @@ def configs():
 def raw_data(db_path, symbol, tf, signature):
     with DatabaseManager(db_path)._get_connection() as conn:
         df = pd.read_sql_query("SELECT * FROM candles WHERE symbol=? AND timeframe=? ORDER BY timestamp", conn, params=(symbol, tf))
-    df["timestamp"] = pd.to_datetime(df.timestamp, utc=True)
+    df["timestamp"] = pd.to_datetime(df.timestamp, utc=True, format="mixed")
     return df
 
 
@@ -43,22 +44,21 @@ def view_model(db_path, signature, settings_json, _minute):
         states = {}
         for tf in TFS:
             if tf == "4h":
-                hourly = frames[(symbol, "1h")]
-                # Las horas estadounidenses a :30 no se pueden partir exactamente
-                # en límites UTC :00; usar 15m y declarar la historia más corta.
-                base = frames[(symbol, "15m")] if len(hourly) and hourly.timestamp.dt.minute.ne(0).any() else hourly
-                bars = aggregate_4h(base, ops["platform_4h"]["timezone"] or "UTC", ops["platform_4h"]["candle_open_times"], calendar, now)
+                bars = prepare_stored(raw_data(db_path, symbol, "4h", signature), symbol, now, calendar)
+                effective_calendar = "CME_Equity" if policy(symbol) and policy(symbol)["method"] == "future_utc" else calendar
             else:
                 bars = prepare_bars(raw_data(db_path, symbol, tf, signature), symbol, tf, calendar, now)
+                effective_calendar = calendar
             frames[(symbol, tf)] = bars
             closed = bars[bars.closed]
-            age = freshness(bars, tf, calendar, now)
-            result = get_latest_market_regime(closed, calc["regime"])
+            age = freshness(bars, tf, effective_calendar, now)
+            result = market_results(closed, calc)[0] if tf == "4h" else get_latest_market_regime(closed, calc["regime"])
             state = result["direction"]
             states[tf] = state if not age["stale"] else "sin datos"
-            qualities.append({"Activo": asset_label(symbol), "Escala": TF_LABELS[tf],
-                "Fuente": "Yahoo", "Último dato UTC": str(age.get("last_data", "—")),
-                "Calidad": age["label"], "Velas guardadas": len(bars), "Dirección": state})
+            qualities.append({"Activo": asset_label(symbol, tf), "Escala": TF_LABELS[tf],
+                "Fuente": "Yahoo · " + asset_label(symbol, "4h") if tf == "4h" and policy(symbol) and policy(symbol)["method"] == "future_utc" else "Yahoo",
+                "Último dato UTC": str(age.get("last_data", "—")),
+                "Calidad": result.get("error_message") or age["label"], "Velas guardadas": len(closed), "Dirección": state})
             if tf == "1D":
                 daily[symbol] = daily_means(bars)
                 d = daily[symbol].iloc[-1] if len(daily[symbol]) else None
@@ -110,7 +110,8 @@ def render_detail(db_path, signature, pilot, ops, frames):
     st.subheader("Detalle por activo")
     symbols = list(pilot["references"])
     c1, c2, c3 = st.columns(3)
-    symbol = c1.selectbox("Activo", symbols, format_func=asset_label, key="pilot_asset", help=help_text("activo"))
+    selected_tf = st.session_state.get("pilot_tf")
+    symbol = c1.selectbox("Activo", symbols, format_func=lambda s: asset_label(s, selected_tf), key="pilot_asset", help=help_text("activo"))
     tf = c2.selectbox("Temporalidad", TFS, index=5, format_func=lambda t: TF_LABELS[t], key="pilot_tf", help=help_text("temporalidad"))
     period = c3.selectbox("Rango", ["Predeterminado", "Último mes", "Últimos 3 meses", "Último año", "Personalizado"], key="pilot_range",
                          help="El rango se mide en sesiones o tiempo, no en un número fijo de velas.")
@@ -128,7 +129,7 @@ def render_detail(db_path, signature, pilot, ops, frames):
     reference = symbol
     mode = ops["cme_vwap_session"]["default"] or "complete"
     if tf != "1D":
-        options = pilot["references"][symbol] + [symbol]
+        options = pilot["references"][symbol] + ([] if tf == "4h" and policy(symbol) and policy(symbol)["method"] == "future_utc" else [symbol])
         c1, c2 = st.columns(2)
         reference = c1.selectbox("Instrumento del gráfico", options, format_func=asset_label, key="pilot_reference_" + symbol,
             help="El gráfico, el precio y el volumen pertenecen siempre al mismo instrumento. El índice no recibe el VWAP de un futuro.")
@@ -140,21 +141,31 @@ def render_detail(db_path, signature, pilot, ops, frames):
         st.caption("Sesión de VWAP: **configuración provisional** (elegida para empezar; la confirmás vos).")
     if reference == "NQ=F":
         st.info("Comparación de " + asset_label(reference) + " con tu CFD USTEC: pendiente de tu validación con el bróker.")
-    if tf == "4h":
-        st.caption("Horario de mi plataforma: UTC provisional, aperturas 00:00/04:00/08:00/12:00/16:00/20:00. Falta validar tu plataforma.")
     cal = pilot["calendars"][reference]
     can_vwap = reference in pilot["names"] or reference == "IWM"
     base_tf = "1h" if tf == "4h" else tf
-    if tf == "4h" and (reference == symbol and symbol in {"^NDX", "^GSPC", "^DJI", "^RUT", "^N225"} or reference in {"QQQ", "SPY", "DIA", "IWM"} or mode == "regular" and reference.endswith("=F")):
-        base_tf = "15m"
     if tf == "1h" and mode == "regular" and reference.endswith("=F"):
         base_tf = "5m"
-    data = prepare_bars(raw_data(db_path, reference, base_tf, signature), reference, base_tf, cal, now,
-                        regular=reference.endswith("=F") and mode == "regular")
+    data = None
+    chart_label = asset_label(reference)
     if tf == "4h":
-        data = aggregate_4h(data, ops["platform_4h"]["timezone"] or "UTC", ops["platform_4h"]["candle_open_times"], "NYSE" if reference.endswith("=F") and mode == "regular" else cal, now)
-        st.caption(f"Bloques 4h reconstruidos desde {TF_LABELS[base_tf]}; no se parte una vela horaria que atraviese el límite del bloque. Si falta historia, se avisa.")
-    elif tf == "1h" and mode == "regular" and reference.endswith("=F"):
+        spec = policy(symbol)
+        storage = symbol if spec and spec["method"] == "future_utc" and reference == spec["reference"] else reference
+        data = prepare_stored(raw_data(db_path, storage, "4h", signature), storage, now, cal)
+        chart_label = asset_label(storage, "4h")
+        with DatabaseManager(db_path)._get_connection() as conn:
+            descriptor = series_descriptor(storage, conn)
+        st.caption(chart_label + " · " + descriptor["label"])
+        if descriptor["method"] == "future_utc":
+            st.caption("Horario de plataforma: " + descriptor["timezone"] + " · " + "/".join(descriptor["starts"]) + " · validación pendiente.")
+        enough, required = sufficient_history(data[data.closed], configs()[1])
+        if not enough:
+            st.warning(f"Historia insuficiente en 4h: se requieren {required} velas; no se usa una etiqueta dudosa.")
+        st.caption("Las velas 4h se construyen desde horas. El selector de sesión cambia el VWAP, no las aperturas de esa serie de 4h.")
+    else:
+        data = prepare_bars(raw_data(db_path, reference, base_tf, signature), reference, base_tf, cal, now,
+                            regular=reference.endswith("=F") and mode == "regular")
+    if tf == "1h" and mode == "regular" and reference.endswith("=F"):
         data = aggregate_regular_hours(data, now)
         st.caption("Sesión regular: las horas se reconstruyen desde 09:30 de Nueva York con velas de cinco minutos.")
     if data.empty:
@@ -179,7 +190,7 @@ def render_detail(db_path, signature, pilot, ops, frames):
             for message in gaps[:30]:
                 st.write(message)
     labels = visible.timestamp.dt.strftime("%Y-%m-%d %H:%M UTC").tolist()
-    fig = go.Figure(go.Candlestick(x=labels, open=visible.open, high=visible.high, low=visible.low, close=visible.close, name=asset_label(reference)))
+    fig = go.Figure(go.Candlestick(x=labels, open=visible.open, high=visible.high, low=visible.low, close=visible.close, name=chart_label))
     open_bars = visible[~visible.closed]
     if len(open_bars):
         fig.add_trace(go.Scatter(x=open_bars.timestamp.dt.strftime("%Y-%m-%d %H:%M UTC"), y=open_bars.close,
@@ -236,7 +247,7 @@ def render_detail(db_path, signature, pilot, ops, frames):
     else:
         st.info("VWAP no disponible para este índice. No se mezcla su precio con el volumen de otro instrumento.")
     fig.update_layout(height=520, xaxis={"type": "category", "categoryorder": "array", "categoryarray": labels, "rangeslider": {"visible": False}, "nticks": 8},
-                      title=asset_label(reference) + " — " + TF_LABELS[tf], yaxis_title="Precio", legend={"orientation": "h"})
+                      title=chart_label + " — " + TF_LABELS[tf], yaxis_title="Precio", legend={"orientation": "h"})
     st.plotly_chart(fig, width="stretch", key="pilot_price_chart")
     if partial:
         st.warning("VWAP parcial: " + " ".join(partial))
@@ -386,6 +397,7 @@ def render_indices(db_path, legacy_render):
         st.write(ALIGNMENT_LEGEND)
         for symbol, a in model["alignment"].items():
             st.write("**" + asset_label(symbol) + "** — " + a["label"])
+            st.caption("Componente 4h: " + asset_label(symbol, "4h"))
             for group, v in a["groups"].items():
                 st.caption(f"{group}: {v['available']} de {v['total']} disponibles; {v['up']} hacia arriba, {v['down']} hacia abajo, {v['weak']} débiles.")
     st.info(FUTURES_NOTICE)
@@ -404,7 +416,7 @@ def render_indices(db_path, legacy_render):
             **{c: st.column_config.Column(help="Cobertura del instrumento de referencia; precio y volumen no se mezclan con el índice.") for c in ["Instrumento", "Escala", "Fuente", "Última marca UTC", "Velas"]},
             "_index": st.column_config.Column(help="Número de fila.")})
         st.write("Las recepciones antiguas, anteriores al formato UTC verificado de C0, no permiten comprobar retrospectivamente si la última vela se recibió terminada. Las nuevas recepciones sí distinguen valores provisionales.")
-        st.write("No se guardan fotos de historial en C2. La hora de cálculo corresponde a esta lectura en caché, no a una foto persistida.")
+        st.write("La hora de cálculo corresponde a esta lectura en caché; las fotos se generan únicamente al actualizar.")
         notices = DatabaseManager(db_path).get_data_notices()
         wanted = set(assets["indices"]["activos"]) | set(pilot["names"])
         for n in notices:

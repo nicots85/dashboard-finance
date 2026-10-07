@@ -40,10 +40,15 @@ def catalog():
     return _active_catalog if _active_catalog is not None else refresh_catalog()
 
 
-def asset_label(symbol):
+def asset_label(symbol, timeframe=None):
     names = catalog()[3]
     if symbol not in names:
         raise KeyError(f"Falta el nombre en español de {symbol} en config/assets.yaml")
+    if timeframe == "4h":
+        from src.data.four_hour import label
+        contextual = label(symbol, timeframe)
+        if contextual:
+            return contextual
     return f"{names[symbol]} ({symbol})"
 
 
@@ -158,10 +163,15 @@ def column_specs(columns, context=None):
     for column in columns:
         if column in TF_LABELS:
             terms = (column, "antigüedad") if context == "age" else (column, "semáforo")
-            label = TF_LABELS[column]
+            label = "4h (método indicado abajo)" if column == "4h" else TF_LABELS[column]
+            if column == "4h":
+                extra = "Índices estadounidenses: 4h del futuro, rotulada vía NQ=F/ES=F/YM=F/RTY=F. ETF, acciones y ADR de EE.UU.: 4h de sesión 09:30–13:30 y 13:30–16:00 Nueva York (segunda más corta). Otros: método de la fuente, según auditoría."
+            else:
+                extra = ""
         else:
             if column not in COLUMNS:
                 raise KeyError(f"Falta ayuda para la columna visible {column}")
             label, terms = COLUMNS[column]
-        specs[column] = {"label": label, "help": help_text(*terms)}
+            extra = ""
+        specs[column] = {"label": label, "help": help_text(*terms) + ("\n\n" + extra if extra else "")}
     return specs

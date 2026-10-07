@@ -197,7 +197,36 @@ python test_c3.py
 ```
 
 **[Formato, cuándo se guarda, tamaño y guía](docs/C3.md)**.
-Las fotos del historial no se implementan hasta C3.
+
+## Series 4h corregidas y programación diaria
+
+Índices estadounidenses usan sus futuros en 4h, siempre rotulados “vía”.
+Acciones, fondos y certificados estadounidenses usan dos velas de sesión NY;
+la segunda es más corta. Las originales se conservan como `4h_legacy` y las
+fotos anteriores muestran **4h antigua**, sin reescribirse.
+
+```bash
+python audit_four_hours.py
+python rebuild_4h.py           # Solo muestra métodos; no aplica
+python rebuild_4h.py --apply   # Respaldo previo, conserva legacy, aplica
+python run_calc.py --tf 4h
+python test_four_hour.py
+python test_four_hour_app.py
+```
+
+La conservación y concordancia de cálculos se comprueban sin escribir datos con
+`python verify_four_hours.py --before "ruta/base_anterior_restaurada.db"`.
+
+Para instalar la corrida diaria SOLO en la máquina elegida:
+
+```bash
+python install_daily_backup.py --hora 21:15 --zona America/Argentina/Buenos_Aires --instalar
+```
+
+No se activó aquí. Los comandos exactos Mac/Windows y la recuperación después
+de un apagado están en **[auditoría, antes/después, campos reales de las fotos
+y guía de 4h](docs/four_hour_correction.md)**. Los campos faltantes de fotos
+se proponen para aprobación; todavía no se agregan.
 
 ---
 

@@ -34,7 +34,7 @@ terminos:
   "5m": "Una vela representa cinco minutos. El color muestra la dirección calculada en esa escala."
   "15m": "Una vela representa quince minutos. El color muestra la dirección calculada en esa escala."
   "1h": "Una vela representa una hora. El último bloque de una rueda puede ser más corto."
-  "4h": "Una vela representa un bloque de cuatro horas. Actualmente se usa el horario UTC; falta compararlo con tu plataforma."
+  "4h": "Índices estadounidenses: 4h del futuro indicado. Acciones, fondos y certificados estadounidenses: velas de sesión 09:30–13:30 y 13:30–16:00 NY, segunda más corta. Otros mantienen su fuente. La versión antigua se conserva y falta validar el horario de plataforma."
   "1D": "Una vela representa un día o una sesión diaria del mercado, según el instrumento."
   temporalidad: "Duración representada por cada vela: minutos, horas o un día."
   activo: "Índice, acción, fondo, contrato o cripto que estás observando. El nombre acompaña siempre a su símbolo."

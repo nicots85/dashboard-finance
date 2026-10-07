@@ -27,6 +27,7 @@ sys.path.insert(0, ROOT)
 
 from src.data import DatabaseManager  # noqa: E402
 from src.data.db_manager import DEFAULT_DB_PATH  # noqa: E402
+from src.data.four_hour import series_descriptor, sufficient_history, prepare_stored  # noqa: E402
 from src.presentation import (  # noqa: E402
     asset_label, pair_label, entity_label, definition, help_text,
     explain_symbols, rich_text, section_terms, column_specs, TF_LABELS, refresh_catalog,
@@ -167,7 +168,7 @@ def obtener_cointegracion(seccion, pares):
         for _, r in df.iterrows():
             calculable = r["calc_status"] != "no_calculable" and pd.notna(r["p_value"])
             rows.append({
-                "Par": pair_label(p["y"], p["x"]),
+                "Par": f"{asset_label(p['y'], r['timeframe'])} / {asset_label(p['x'], r['timeframe'])}",
                 "TF": TF_LABELS[r["timeframe"]],
                 "Cointegrado": "No calculable" if not calculable else "✅ cointegrado" if r["is_cointegrated"] else "❌ no cointegrado",
                 "p-valor": r["p_value"],
@@ -310,19 +311,27 @@ def obtener_historia(symbol, tf, limite=500):
 
 def grafico_detalle(symbol, tf):
     if tf == "4h":
-        with open(os.path.join(ROOT, "config", "operations.yaml"), encoding="utf-8") as file:
-            ops = yaml.safe_load(file)
-        caption_help("Horario de velas de cuatro horas: " + ops["platform_4h"]["current_label"])
+        with DatabaseManager(DB_PATH)._get_connection() as conn:
+            descriptor = series_descriptor(symbol, conn)
+        st.caption(asset_label(symbol, tf) + " · " + descriptor["label"])
     df = obtener_historia(symbol, tf)
     if df.empty or len(df) < 60:
         st.warning("No hay suficientes datos para este activo/temporalidad.")
         return
     hist = compute_market_regime_history(df)
     z = compute_zscore_history(df)
+    if tf == "4h":
+        with open(os.path.join(ROOT, "config/calc.yaml"), encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        enough, required = sufficient_history(df, config)
+        if not enough:
+            st.warning(f"Historia insuficiente en 4h: {len(df)} velas; se requieren {required}. No se muestra una etiqueta de régimen dudosa.")
+            hist["direction"] = "sin datos"
+            z["z_atr"] = float("nan")
 
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3],
-        vertical_spacing=0.05, subplot_titles=(f"{asset_label(symbol)} — {TF_LABELS[tf]}: precio y EMA de 50 velas", "Z-score: distancia a la media por ATR"),
+        vertical_spacing=0.05, subplot_titles=(f"{asset_label(symbol, tf)} — {TF_LABELS[tf]}: precio y EMA de 50 velas", "Z-score: distancia a la media por ATR"),
     )
     fig.layout.annotations[0].hovertext = help_text(symbol, tf, "EMA")
     fig.layout.annotations[1].hovertext = help_text("z-score", "ATR")
@@ -345,8 +354,8 @@ def grafico_detalle(symbol, tf):
 
     fig.add_trace(go.Candlestick(
         x=df["timestamp"], open=df["open"], high=df["high"], low=df["low"], close=df["close"],
-        name=asset_label(symbol), hoverinfo="text",
-        hovertext=[f"{asset_label(symbol)}<br>{row.timestamp}<br>Apertura: {row.open:,.2f}<br>Máximo: {row.high:,.2f}<br>Mínimo: {row.low:,.2f}<br>Cierre: {row.close:,.2f}" for row in df.itertuples()],
+        name=asset_label(symbol, tf), hoverinfo="text",
+        hovertext=[f"{asset_label(symbol, tf)}<br>{row.timestamp}<br>Apertura: {row.open:,.2f}<br>Máximo: {row.high:,.2f}<br>Mínimo: {row.low:,.2f}<br>Cierre: {row.close:,.2f}" for row in df.itertuples()],
     ), row=1, col=1)
     fig.add_trace(go.Scatter(x=df["timestamp"], y=hist["ema"], name="EMA 50",
                              line=dict(color="orange", width=1.5),
@@ -439,6 +448,11 @@ def render_seccion(seccion):
         return "background-color: #fff3b0" if v and v.startswith("⚠") else ""
 
     dataframe_help(df_edad.style.map(viejo), context="age", use_container_width=True, hide_index=True)
+    with st.expander("Método y versión de la 4h"):
+        with DatabaseManager(DB_PATH)._get_connection() as conn:
+            for symbol in activos:
+                descriptor = series_descriptor(symbol, conn)
+                st.write(asset_label(symbol, "4h") + " · " + descriptor["label"] + " · " + descriptor["version"])
 
     # c) Cointegración / CCL implícito (según sección)
     if seccion == "argentina":
@@ -522,6 +536,9 @@ def render_seccion(seccion):
                      "last_data_timestamp": "Último dato usado (UTC)", "status": "Estado", "reason": "Aviso"}
             dates = pd.DataFrame(health).drop(columns=["table"]).rename(columns=names)
             dates["Activo o par"] = dates["Activo o par"].map(entity_label)
+            for i, item in enumerate(health):
+                if item["timeframe"] == "4h" and item["asset"] in activos:
+                    dates.loc[dates.index[i], "Activo o par"] = asset_label(item["asset"], "4h")
             dates["Temporalidad"] = dates["Temporalidad"].map(TF_LABELS)
             dates["Estado"] = dates["Estado"].map({"ok": "Comprobado", "stale": "Desactualizado",
                 "untracked": "Recalcular para comprobar", "no_calculable": "No calculable"})
@@ -658,9 +675,19 @@ def render_historial():
         if not chosen:
             st.info("No hay fotos en ese período.")
             return
-        labels = {p["id"]: f"{p['created_at']} · {p['trigger']} · {p['status']}{' · tardía' if p['late'] else ''} · {p['machine']}" for p in chosen}
+        labels = {p["id"]: f"{p['created_at']} · {p['trigger']} · {p['status']}{' · tardía' if p['late'] else ''} · {p['machine']} · {p['four_hour_label']}" for p in chosen}
         pid = st.selectbox("Foto", list(labels), format_func=lambda i: labels[i], key="hist_photo")
         photo = get_photo(pid, DB_PATH)
+        st.caption("Serie usada en esa foto: " + photo["four_hour_label"])
+        with st.expander("Versiones 4h de esa foto"):
+            if photo["four_hour_label"] == "4h antigua":
+                st.write("4h antigua. La foto no se modifica ni se recalcula con la serie nueva.")
+            else:
+                for name, section in photo["content"].get("sections", {}).items():
+                    for item in section.get("assets", []):
+                        timeframe = item.get("timeframes", {}).get("4h", {})
+                        version = timeframe.get("series_4h", {})
+                        st.write(f"{timeframe.get('display_name', asset_label(item['symbol']))}: {version.get('label', '4h antigua')} · {version.get('version', '4h-antigua')}")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Resultado", photo["status"])
         c2.metric("Activadores", photo["trigger"])

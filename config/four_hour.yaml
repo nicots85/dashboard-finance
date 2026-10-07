@@ -1,0 +1,13 @@
+# Métodos aprobados. No se usa 1m/5m/15m para reconstruir la historia 4h.
+version: 2
+index_futures:
+  "^NDX": "NQ=F"
+  "^GSPC": "ES=F"
+  "^DJI": "YM=F"
+  "^RUT": "RTY=F"
+session_sections: [equity, smallcaps]
+session_symbols: [QQQ, SPY, DIA, GGAL, YPF, PAM, BMA, CEPU]
+session_timezone: America/New_York
+session_starts: ["09:30", "13:30"]
+session_close: "16:00"
+minimum_valid_atr_observations: 250

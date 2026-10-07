@@ -11,6 +11,7 @@ Mapea a color:
 from typing import Dict, Any, List, Optional
 import pandas as pd
 from src.calc.regime import get_latest_market_regime
+from src.data.four_hour import market_results, prepare_stored
 
 ALL_TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1D"]
 
@@ -45,7 +46,10 @@ def compute_multi_timeframe_trends(
             result["trends"][tf] = "sin datos"
             result["colors"][tf] = "gris"
         else:
-            reg = get_latest_market_regime(df, config=regime_config)
+            if tf == "4h":
+                df = prepare_stored(df, symbol)
+                df = df[df.closed]
+            reg = market_results(df, {"regime": regime_config or {}})[0] if tf == "4h" else get_latest_market_regime(df, config=regime_config)
             direction = reg["direction"]
             result["trends"][tf] = direction
             result["colors"][tf] = color_map.get(direction, "gris")

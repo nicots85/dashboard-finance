@@ -31,6 +31,7 @@ from src.data import (
 from src.data.audit import recent_gaps
 from src.data.db_manager import DEFAULT_DB_PATH
 from src.data.backup import ROOT, ensure_daily_backup
+from src.data.four_hour import policy, rebuild_one
 
 # Configuración básica de logging limpio
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -56,6 +57,27 @@ def update_market_asset(
 
     for tf in timeframes:
         try:
+            spec = policy(symbol) if tf == "4h" else None
+            if spec:
+                reference = spec["reference"]
+                latest = db.get_latest_candle_timestamp(reference, "1h")
+                # Recuperar el día anterior para completar la última sesión/bloque.
+                since = latest - pd.Timedelta(days=1) if latest is not None else None
+                hours = adapter.fetch_ohlcv(reference, timeframe="1h", since=since)
+                if hours is not None and not hours.empty:
+                    db.save_candles(hours, reference, "1h", source="yahoo")
+                elif db.load_candles(reference, "1h").empty:
+                    raise ValueError(f"No hay horas de {reference} para construir la 4h de {symbol}.")
+                rebuilt = rebuild_one(db, symbol)
+                data = db.load_candles(symbol, "4h")
+                results.append({"symbol": symbol, "tf": tf, "count": len(data),
+                    "min_date": data.timestamp.min().strftime("%Y-%m-%d %H:%M"),
+                    "max_date": data.timestamp.max().strftime("%Y-%m-%d %H:%M"),
+                    "source": f"vía {reference}" if spec["method"] == "future_utc" else "4h de sesión NY",
+                    "status": "OK (reconstruida desde 1h)" if hours is not None and not hours.empty else "Sin horas nuevas; se conserva lo disponible"})
+                if rebuilt.get("omitted"):
+                    db.record_data_notice(symbol, tf, "four_hour_incomplete", f"{rebuilt['omitted']} bloques omitidos porque faltaban horas completas o cruzaban un límite; no se inventaron precios.")
+                continue
             # Consultar última fecha guardada en BD
             last_ts = db.get_latest_candle_timestamp(symbol, tf)
             

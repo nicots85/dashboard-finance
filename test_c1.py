@@ -135,9 +135,14 @@ class SixTabsTextTests(unittest.TestCase):
                 if trace.get("type") == "heatmap":
                     texts.extend(trace["y"])
         labels = [asset_label(symbol) for symbol in catalog()[3]]
+        labels.extend(asset_label(symbol, "4h") for symbol in catalog()[0]["indices"]["activos"])
         for text in texts:
             plain = without_html(text)
             explained = {symbol for symbol in catalog()[3] if asset_label(symbol) in plain}
+            from src.data.four_hour import policy
+            for symbol in catalog()[0]["indices"]["activos"]:
+                if asset_label(symbol, "4h") in plain and policy(symbol) and policy(symbol)["method"] == "future_utc":
+                    explained.add(policy(symbol)["reference"])
             for label in sorted(labels, key=len, reverse=True):
                 plain = plain.replace(label, "")
             for symbol in catalog()[3]:

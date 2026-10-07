@@ -28,6 +28,7 @@ load_dotenv()
 
 from src.data import DatabaseManager
 from src.data.db_manager import DEFAULT_DB_PATH
+from src.data.four_hour import market_results, prepare_stored, label as four_hour_label
 from src.calc import (
     get_latest_market_regime,
     compute_multi_timeframe_trends,
@@ -126,6 +127,9 @@ def main():
             dfs_by_tf = {}
             for tf in ["1m", "5m", "15m", "1h", "4h", "1D"]:
                 df_loaded = db.load_candles(sym, tf)
+                if tf == "4h":
+                    df_loaded = prepare_stored(df_loaded, sym)
+                    df_loaded = df_loaded[df_loaded.closed]
                 if not df_loaded.empty:
                     dfs_by_tf[tf] = df_loaded
 
@@ -143,12 +147,15 @@ def main():
 
                 try:
                     # Régimen
-                    reg = get_latest_market_regime(df, config=calc_cfg.get("regime"))
-                    inputs = [df.attrs["data_version"]]
+                    reg, z = market_results(df, calc_cfg) if tf == "4h" else (
+                        get_latest_market_regime(df, config=calc_cfg.get("regime")), get_latest_zscore(df, config=calc_cfg.get("zscore")))
+                    inputs = [df.attrs["data_version"], *df.attrs.get("four_hour_series", {}).get("inputs", [])]
+                    if tf == "4h":
+                        reg["series_version"] = df.attrs["four_hour_series"]["version"]
+                        z["series_version"] = df.attrs["four_hour_series"]["version"]
                     db.save_regime_result(sym, tf, reg, input_versions=inputs, params=calc_cfg.get("regime", {}))
 
                     # Z-Score
-                    z = get_latest_zscore(df, config=calc_cfg.get("zscore"))
                     db.save_zscore_result(sym, tf, z, input_versions=inputs, params=calc_cfg.get("zscore", {}))
                     if reg["direction"] == "sin datos" or z["z_atr"] is None:
                         fallos.append((sym, tf, "No calculable: falta historia para régimen o dispersión"))
@@ -161,7 +168,7 @@ def main():
 
                     resumen_activos.append({
                         "seccion": sec,
-                        "symbol": sym,
+                        "symbol": four_hour_label(sym, tf) or sym,
                         "tf": tf,
                         "regime": reg["regime"],
                         "adx": f"{reg['adx']:.1f}" if reg['adx'] else "-",
