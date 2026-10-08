@@ -63,6 +63,7 @@ SECTION_MACRO = {
 }
 
 NOTAS_BASE = """
+- **La dirección se detecta mejor en subas que en caídas:** en caídas históricas conocidas, la herramienta marcó como bajista entre 37% y 56% de las velas. Un 'lateral' o 'alcista débil' en medio de una caída no es un error.
 - **Precio lejos de su promedio:** no significa que vaya a volver pronto. Una suba o baja fuerte puede mantenerlo lejos varios días.
 - **Dirección débil:** el precio está muy separado de su promedio, pero la medida de fuerza todavía no confirma una tendencia fuerte.
 - **Colores:** verde significa dirección de suba; rojo, de baja; gris, lateral. El cuadrado pequeño significa que faltan datos. Ninguno es una orden de compra o venta.
@@ -545,6 +546,16 @@ def render_seccion(seccion):
             dataframe_help(dates, use_container_width=True, hide_index=True)
 
     # g) Cómo leer esto (adaptado a la sección)
+    with st.expander("Alineación por activo"):
+        from src.indices_math import alignment
+        for sym in activos:
+            sem = semaforos.get(sym, {}).get("trends", {})
+            directions = {tf: sem.get(tf, "sin datos") for tf in ALL_TF}
+            align = alignment(directions)
+            st.write(f"**{asset_label(sym)}** — {align['label']}")
+            for group, v in align["groups"].items():
+                st.caption(f"{group}: {v['available']} de {v['total']} disponibles; {v['up']} hacia arriba, {v['down']} hacia abajo, {v['weak']} débiles.")
+
     with st.expander("Cómo leer esto"):
         st.markdown(rich_text(NOTAS_SECCION.get(seccion, NOTAS_BASE)), unsafe_allow_html=True)
     with st.expander("Glosario"):
