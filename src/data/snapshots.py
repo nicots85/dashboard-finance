@@ -19,7 +19,7 @@ from src.data.db_manager import DEFAULT_DB_PATH
 from src.data.four_hour import series_descriptor, policy
 from src.indices_math import alignment, prepare_bars, session_vwap
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
 
@@ -236,7 +236,7 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
         conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
             photo_id, now.isoformat(timespec="seconds"), machine_name(), trigger, status, int(late),
             app_version(), config_hash(), json.dumps(tfs_scope or ALL_TF), json.dumps(errors or [], ensure_ascii=False),
-            json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "alignment_format": 1, "direction_definition": "alt1", "sections": sections}, ensure_ascii=False, default=str)))
+            json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "alignment_format": 1, "direction_definition": "alt3_umbral005", "sections": sections}, ensure_ascii=False, default=str)))
         conn.commit()
         return photo_id
     finally:

@@ -39,15 +39,15 @@ terminos:
     sector o estilo de empresas.
   futuro: Contrato para negociar un activo en una fecha futura. La serie de Yahoo
     puede unir distintos contratos; su ajuste no está verificado.
-  alcista: La pendiente de la EMA es positiva (sube más de un 10% del ATR). La fuerza
-    puede ser fuerte (ADX > 25), media (ADX 20-25) o débil (ADX < 20).
-  bajista: La pendiente de la EMA es negativa (baja más de un 10% del ATR). La fuerza
-    puede ser fuerte (ADX > 25), media (ADX 20-25) o débil (ADX < 20).
+  alcista: La pendiente de la EMA es positiva y mayor al 5% del ATR. La fuerza puede
+    ser fuerte (ADX > 25), media (ADX 20-25) o débil (ADX < 20).
+  bajista: La pendiente de la EMA es negativa y mayor al 5% del ATR en valor absoluto.
+    La fuerza puede ser fuerte (ADX > 25), media (ADX 20-25) o débil (ADX < 20).
   alcista (débil): Eliminado en Alt 1. Ahora se usa 'Alcista débil' con la fuerza
     separada.
   bajista (débil): Eliminado en Alt 1. Ahora se usa 'Bajista débil' con la fuerza
     separada.
-  lateral: La pendiente de la EMA es pequeña (menos del 10% del ATR). No hay tendencia
+  lateral: La pendiente de la EMA es pequeña (menos del 5% del ATR). No hay tendencia
     clara. La fuerza puede ser débil (ADX < 20), media (ADX 20-25) o fuerte (ADX >
     25).
   sin datos: No alcanza la información para calcular la dirección. Es distinto de
@@ -236,7 +236,7 @@ terminos:
   RTY=F: Futuro del Russell 2000 de Yahoo; alternativa para el índice cuyo volumen
     intradía es cero.
   fuerza: 'Indica qué tan fuerte es la tendencia: fuerte (ADX > 25), media (ADX 20-25)
-    o débil (ADX < 20).'
+    o débil (ADX < 20). Con histéresis de 2 puntos para cambiar de nivel.'
 comunes:
 - activo
 - fuente

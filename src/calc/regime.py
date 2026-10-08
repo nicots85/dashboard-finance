@@ -73,6 +73,7 @@ def compute_market_regime_history(
     volatility_low_pct: float = 25.0,
     volatility_high_pct: float = 75.0,
     weak_trend_z: float = 2.0,
+    config: Optional[Dict[str, Any]] = None,
 ) -> pd.DataFrame:
     """
     Calcula el régimen de mercado para toda la serie histórica de un activo.
@@ -114,7 +115,7 @@ def compute_market_regime_history(
     atr_safe = atr.replace(0, np.nan)
     z_atr = (out["close"] - ema) / atr_safe
     out["z_atr"] = z_atr
-    slope_threshold = 0.1 * atr_safe  # 10% del ATR como umbral de "plana"
+    slope_threshold = 0.05 * atr_safe  # 5% del ATR como umbral de "plana"
 
     conditions_dir = [
         (ema_slope > slope_threshold),
@@ -123,14 +124,41 @@ def compute_market_regime_history(
     choices_dir = ["alcista", "bajista"]
     out["direction"] = np.select(conditions_dir, choices_dir, default="lateral")
 
-    # 4. Clasificación de Fuerza (Alt 1)
-    # Fuerza = ADX en tres niveles
+    # 4. Clasificación de Fuerza (Alt 3: histéresis en fuerza)
+    # Fuerza = ADX en tres niveles con histéresis de 2 puntos
     conditions_strength = [
         (adx < adx_threshold_lateral),  # débil
         (adx > 25),  # fuerte
     ]
     choices_strength = ["débil", "fuerte"]
-    out["strength"] = np.select(conditions_strength, choices_strength, default="media")
+    strength_raw = np.select(conditions_strength, choices_strength, default="media")
+    
+    # Aplicar histéresis si está habilitada
+    if config and config.get("strength_hysteresis", False):
+        strength = strength_raw.copy()
+        for i in range(1, len(df)):
+            prev = strength[i-1]
+            curr_raw = strength_raw[i]
+            if prev == "débil" and curr_raw == "media":
+                # Para pasar de débil a media, exigir ADX >= 20 + 2
+                if adx.iloc[i] < adx_threshold_lateral + 2:
+                    strength[i] = "débil"
+            elif prev == "media":
+                if curr_raw == "débil":
+                    # Para pasar de media a débil, exigir ADX < 20 - 2
+                    if adx.iloc[i] >= adx_threshold_lateral - 2:
+                        strength[i] = "media"
+                elif curr_raw == "fuerte":
+                    # Para pasar de media a fuerte, exigir ADX > 25 + 2
+                    if adx.iloc[i] <= 25 + 2:
+                        strength[i] = "media"
+            elif prev == "fuerte" and curr_raw == "media":
+                # Para pasar de fuerte a media, exigir ADX <= 25 - 2
+                if adx.iloc[i] > 25 - 2:
+                    strength[i] = "fuerte"
+        out["strength"] = strength
+    else:
+        out["strength"] = strength_raw
 
     # Percentil móvil del ATR respecto a su ventana histórica
     def rolling_pct(x):
@@ -212,7 +240,7 @@ def get_latest_market_regime(
         direction = "sin datos"
         strength = "sin datos"
     else:
-        slope_threshold = 0.1 * atr.iloc[-1]
+        slope_threshold = 0.05 * atr.iloc[-1]
         if slope > slope_threshold:
             direction = "alcista"
         elif slope < -slope_threshold:
