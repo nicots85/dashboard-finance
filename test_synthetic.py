@@ -35,7 +35,8 @@ def test_uptrend_synthetic():
 
     reg = get_latest_market_regime(df)
     assert reg["direction"] == "alcista", f"Fallo: se esperaba 'alcista', se obtuvo '{reg['direction']}'"
-    print("✅ Test 1 (Tendencia alcista sintética): OK -> Clasificado como 'alcista'")
+    assert reg["strength"] == "fuerte", f"Fallo: se esperaba 'fuerte', se obtuvo '{reg['strength']}'"
+    print("✅ Test 1 (Tendencia alcista sintética): OK -> 'alcista fuerte'")
 
 
 def test_lateral_synthetic():
@@ -149,7 +150,7 @@ def test_weak_trend_synthetic():
     reg = get_latest_market_regime(df)
     assert reg["direction"] == "alcista", f"Fallo: se esperaba 'alcista', se obtuvo '{reg['direction']}' (adx={reg['adx']})"
     assert reg["strength"] == "débil", f"Fallo: se esperaba 'débil', se obtuvo '{reg['strength']}' (adx={reg['adx']})"
-    print(f"✅ Test 5 (Salto fuerte en serie plana): OK -> '{reg['direction']} {reg['strength']}' (ADX={reg['adx']:.1f})")
+    print(f"✅ Test 5 (Salto fuerte en serie plana): OK -> 'alcista débil' (ADX={reg['adx']:.1f})")
 
 
 def main():
