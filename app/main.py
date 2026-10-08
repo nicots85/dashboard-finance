@@ -546,16 +546,6 @@ def render_seccion(seccion):
             dataframe_help(dates, use_container_width=True, hide_index=True)
 
     # g) Cómo leer esto (adaptado a la sección)
-    with st.expander("Alineación por activo"):
-        from src.indices_math import alignment
-        for sym in activos:
-            sem = semaforos.get(sym, {}).get("trends", {})
-            directions = {tf: sem.get(tf, "sin datos") for tf in ALL_TF}
-            align = alignment(directions)
-            st.write(f"**{asset_label(sym)}** — {align['label']}")
-            for group, v in align["groups"].items():
-                st.caption(f"{group}: {v['available']} de {v['total']} disponibles; {v['up']} hacia arriba, {v['down']} hacia abajo, {v['weak']} débiles.")
-
     with st.expander("Cómo leer esto"):
         st.markdown(rich_text(NOTAS_SECCION.get(seccion, NOTAS_BASE)), unsafe_allow_html=True)
     with st.expander("Glosario"):
@@ -850,7 +840,7 @@ def main():
     render_historial()
     tabs = st.tabs(["Índices", "Metales", "Equity", "Small caps", "Cripto", "Argentina"])
     with tabs[0]:
-        render_indices(DB_PATH, render_seccion)
+        render_indices(DB_PATH, render_seccion, section="indices")
     with tabs[1]:
         render_seccion("metales")
     with tabs[2]:

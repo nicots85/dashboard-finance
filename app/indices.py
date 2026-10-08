@@ -20,9 +20,14 @@ TFS = ["1m", "5m", "15m", "1h", "4h", "1D"]
 FUTURES_NOTICE = "Los futuros continuos de Yahoo pueden tener saltos en los cambios de contrato; no se verificó cómo los ajusta."
 
 
-def configs():
-    return tuple(yaml.safe_load((ROOT / "config" / file).read_text(encoding="utf-8"))
-                 for file in ["assets.yaml", "calc.yaml", "indices_pilot.yaml", "operations.yaml", "pairs.yaml"])
+def configs(section="indices"):
+    assets_cfg = yaml.safe_load((ROOT / "config" / "assets.yaml").read_text(encoding="utf-8"))
+    calc_cfg = yaml.safe_load((ROOT / "config" / "calc.yaml").read_text(encoding="utf-8"))
+    sections_cfg = yaml.safe_load((ROOT / "config" / "sections.yaml").read_text(encoding="utf-8"))
+    ops_cfg = yaml.safe_load((ROOT / "config" / "operations.yaml").read_text(encoding="utf-8"))
+    pairs_cfg = yaml.safe_load((ROOT / "config" / "pairs.yaml").read_text(encoding="utf-8"))
+    pilot_cfg = sections_cfg.get(section, {})
+    return assets_cfg, calc_cfg, pilot_cfg, ops_cfg, pairs_cfg
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -34,12 +39,12 @@ def raw_data(db_path, symbol, tf, signature):
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def view_model(db_path, signature, settings_json, _minute):
+def view_model(db_path, signature, settings_json, _minute, section="indices"):
     assets, calc, pilot, ops, _ = json.loads(settings_json)
     now = pd.to_datetime(_minute, utc=True)
     daily, directions, frames, qualities = {}, {}, {}, []
     rows = []
-    for symbol in assets["indices"]["activos"]:
+    for symbol in assets[section]["activos"]:
         calendar = pilot["calendars"][symbol]
         states = {}
         for tf in TFS:
@@ -87,8 +92,8 @@ def cointegration_model(db_path, signature, settings_json, _minute, y, x):
 def update_indices(db_path, quick=False):
     tfs = "1h,1D" if quick else "1m,5m,15m,1h,4h,1D"
     progress = st.progress(0, text="Actualizando únicamente los índices...")
-    steps = [[sys.executable, str(ROOT / "update_data.py"), "--seccion", "indices", "--tf", tfs, "--db", db_path],
-             [sys.executable, str(ROOT / "run_calc.py"), "--seccion", "indices", "--tf", tfs, "--db", db_path],
+    steps = [[sys.executable, str(ROOT / "update_data.py"), "--seccion", section, "--tf", tfs, "--db", db_path],
+             [sys.executable, str(ROOT / "run_calc.py"), "--seccion", section, "--tf", tfs, "--db", db_path],
              [sys.executable, str(ROOT / "update_indices_references.py"), "--tf", tfs, "--db", db_path]]
     failures = []
     for i, command in enumerate(steps):
@@ -158,7 +163,7 @@ def render_detail(db_path, signature, pilot, ops, frames):
         st.caption(chart_label + " · " + descriptor["label"])
         if descriptor["method"] == "future_utc":
             st.caption("Horario de plataforma: " + descriptor["timezone"] + " · " + "/".join(descriptor["starts"]) + " · validación pendiente.")
-        enough, required = sufficient_history(data[data.closed], configs()[1])
+        enough, required = sufficient_history(data[data.closed], configs(section)[1])
         if not enough:
             st.warning(f"Historia insuficiente en 4h: se requieren {required} velas; no se usa una etiqueta dudosa.")
         st.caption("Las velas 4h se construyen desde horas. El selector de sesión cambia el VWAP, no las aperturas de esa serie de 4h.")
@@ -319,13 +324,13 @@ def render_cointegration(db_path, signature, settings_json, minute, pilot, pairs
         st.markdown("**Contexto académico — no interviene en los números:** Engle y Granger (1987) desarrollaron pruebas para estudiar un equilibrio entre series con tendencia; no estudiaron específicamente estos pares de índices. [Referencia verificada](https://doi.org/10.2307/1913236).")
 
 
-def render_indices(db_path, legacy_render):
-    assets, calc, pilot, ops, pairs = configs()
+def render_indices(db_path, legacy_render, section="indices"):
+    assets, calc, pilot, ops, pairs = configs(section)
     signature = DatabaseManager(db_path).data_signature()
     minute = pd.Timestamp.now(tz="UTC").floor("min").isoformat()
     settings_json = json.dumps([assets, calc, pilot, ops, pairs], sort_keys=True)
     with st.spinner("Preparando la lectura de Índices y su calendario..."):
-        model = view_model(db_path, signature, settings_json, minute)
+        model = view_model(db_path, signature, settings_json, minute, section=section)
     # Las edades corresponden a la hora de cálculo visible. La lectura se
     # renueva al cambiar precios o al vencer su caché, sin recalcular en cada clic.
     data_end = max((r["last_data"] for r in model["rows"] if r["last_data"] != "—"), default="Sin datos")
@@ -402,7 +407,7 @@ def render_indices(db_path, legacy_render):
                 st.caption(f"{group}: {v['available']} de {v['total']} disponibles; {v['up']} hacia arriba, {v['down']} hacia abajo, {v['weak']} débiles.")
     st.info(FUTURES_NOTICE)
     render_detail(db_path, signature, pilot, ops, model["frames"])
-    render_cointegration(db_path, signature, settings_json, minute, pilot, pairs["indices"])
+    render_cointegration(db_path, signature, settings_json, minute, pilot, pairs[section])
     with st.expander("Fuentes, fechas, parámetros y calidad de los datos"):
         st.dataframe(model["quality"], hide_index=True, width="stretch", column_config={**{c: st.column_config.Column(help="Trazabilidad de la lectura del piloto: calendario, fuente y fecha usada.") for c in model["quality"].columns}, "_index": st.column_config.Column(help="Número de fila.")})
         st.json({"parámetros diarios": calc["regime"], "lectura piloto": pilot, "horario 4h": ops["platform_4h"], "sesión": ops["cme_vwap_session"]})
@@ -418,14 +423,14 @@ def render_indices(db_path, legacy_render):
         st.write("Las recepciones antiguas, anteriores al formato UTC verificado de C0, no permiten comprobar retrospectivamente si la última vela se recibió terminada. Las nuevas recepciones sí distinguen valores provisionales.")
         st.write("La hora de cálculo corresponde a esta lectura en caché; las fotos se generan únicamente al actualizar.")
         notices = DatabaseManager(db_path).get_data_notices()
-        wanted = set(assets["indices"]["activos"]) | set(pilot["names"])
+        wanted = set(assets[section]["activos"]) | set(pilot["names"])
         for n in notices:
             if n["asset"] in wanted:
                 st.write(f"{asset_label(n['asset'])}: {n['message']}")
     with st.expander("Cómo leer esto"):
         st.write("Primero mirá si varios índices y escalas coinciden. La fuerza relativa compara rendimientos; estar lejos de una media no equivale a ser más fuerte. Las bandas de sesión describen distancia, no aseguran reversión. Revisá fechas, fuente y velas abiertas antes de comparar con tu plataforma.")
     with st.expander("Glosario"):
-        for term in section_terms("indices", ["DGS10", "T10Y2Y", "VIXCLS"]):
+        for term in section_terms(section, ["DGS10", "T10Y2Y", "VIXCLS"]):
             try:
                 label = asset_label(term)
             except KeyError:
@@ -433,4 +438,4 @@ def render_indices(db_path, legacy_render):
             text = "Promedio de sesión ponderado por el volumen del mismo instrumento; reinicio según la sesión elegida." if term == "VWAP" else definition(term)
             st.markdown("**" + rich_text(label) + "** — " + rich_text(text), unsafe_allow_html=True)
     with st.expander("Vista anterior (para comparar)"):
-        legacy_render("indices")
+        legacy_render(section)
