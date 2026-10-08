@@ -89,7 +89,7 @@ def cointegration_model(db_path, signature, settings_json, _minute, y, x):
     return pair_analysis(*values, pilot["cointegration"])
 
 
-def update_indices(db_path, quick=False):
+def update_indices(db_path, quick=False, section="indices"):
     tfs = "1h,1D" if quick else "1m,5m,15m,1h,4h,1D"
     progress = st.progress(0, text="Actualizando únicamente los índices...")
     steps = [[sys.executable, str(ROOT / "update_data.py"), "--seccion", section, "--tf", tfs, "--db", db_path],
@@ -111,7 +111,7 @@ def metric(label, value, explanation, delta=None):
     st.metric(label, value, delta, help=explanation)
 
 
-def render_detail(db_path, signature, pilot, ops, frames):
+def render_detail(db_path, signature, pilot, ops, frames, section="indices"):
     st.subheader("Detalle por activo")
     symbols = list(pilot["references"])
     c1, c2, c3 = st.columns(3)
@@ -324,7 +324,7 @@ def render_cointegration(db_path, signature, settings_json, minute, pilot, pairs
         st.markdown("**Contexto académico — no interviene en los números:** Engle y Granger (1987) desarrollaron pruebas para estudiar un equilibrio entre series con tendencia; no estudiaron específicamente estos pares de índices. [Referencia verificada](https://doi.org/10.2307/1913236).")
 
 
-def render_indices(db_path, legacy_render, section="indices"):
+def render_section_pilot(db_path, legacy_render, section="indices"):
     assets, calc, pilot, ops, pairs = configs(section)
     signature = DatabaseManager(db_path).data_signature()
     minute = pd.Timestamp.now(tz="UTC").floor("min").isoformat()
@@ -338,9 +338,9 @@ def render_indices(db_path, legacy_render, section="indices"):
     st.caption(f"Datos al: {data_end} · Calculado: {calculated.strftime('%d/%m/%Y %H:%M:%S')} Buenos Aires")
     c1, c2 = st.columns(2)
     if c1.button("Actualizar Índices y referencias", key="pilot_update_all", help="Descarga y calcula solo Índices; las referencias tienen precio y volumen propios."):
-        update_indices(db_path)
+        update_indices(db_path, section=section)
     if c2.button("Actualización rápida de Índices", key="pilot_update_quick", help="Solo una hora y diario; las escalas cortas pueden seguir atrasadas."):
-        update_indices(db_path, True)
+        update_indices(db_path, True, section=section)
     if st.session_state.get("pilot_update_message"):
         st.info(st.session_state["pilot_update_message"])
         for err in st.session_state.get("pilot_update_errors", []):
@@ -406,7 +406,7 @@ def render_indices(db_path, legacy_render, section="indices"):
             for group, v in a["groups"].items():
                 st.caption(f"{group}: {v['available']} de {v['total']} disponibles; {v['up']} hacia arriba, {v['down']} hacia abajo, {v['weak']} débiles.")
     st.info(FUTURES_NOTICE)
-    render_detail(db_path, signature, pilot, ops, model["frames"])
+    render_detail(db_path, signature, pilot, ops, model["frames"], section)
     render_cointegration(db_path, signature, settings_json, minute, pilot, pairs[section])
     with st.expander("Fuentes, fechas, parámetros y calidad de los datos"):
         st.dataframe(model["quality"], hide_index=True, width="stretch", column_config={**{c: st.column_config.Column(help="Trazabilidad de la lectura del piloto: calendario, fuente y fecha usada.") for c in model["quality"].columns}, "_index": st.column_config.Column(help="Número de fila.")})

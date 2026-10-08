@@ -1,3 +1,8 @@
+# OBSOLETO — reemplazado por config/sections.yaml (clave "indices"), que el
+# piloto ahora lee. Se conserva SIN CAMBIOS solo para lectores pendientes de
+# migrar (src/presentation.py, src/data/snapshots.py,
+# update_indices_references.py, test_c2.py). Migrarlos y borrar este archivo
+# es un paso posterior (no altera la firma de settings de las fotos hoy).
 # C2: solo el piloto de Índices. No modifica los motores de las otras pestañas.
 names:
   "NQ=F": "Nasdaq 100 — futuro de referencia"

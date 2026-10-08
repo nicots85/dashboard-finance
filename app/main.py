@@ -32,7 +32,7 @@ from src.presentation import (  # noqa: E402
     asset_label, pair_label, entity_label, definition, help_text,
     explain_symbols, rich_text, section_terms, column_specs, TF_LABELS, refresh_catalog,
 )
-from app.indices import render_indices  # noqa: E402
+from app.indices import render_section_pilot  # noqa: E402
 from src.calc import (  # noqa: E402
     compute_market_regime_history,
     compute_zscore_history,
@@ -840,7 +840,7 @@ def main():
     render_historial()
     tabs = st.tabs(["Índices", "Metales", "Equity", "Small caps", "Cripto", "Argentina"])
     with tabs[0]:
-        render_indices(DB_PATH, render_seccion, section="indices")
+        render_section_pilot(DB_PATH, render_seccion, section="indices")
     with tabs[1]:
         render_seccion("metales")
     with tabs[2]:
