@@ -102,8 +102,8 @@ class SixTabsTextTests(unittest.TestCase):
     def test_six_tabs_have_no_exceptions_and_each_has_glossary(self):
         self.assertFalse(self.app.exception, [e.value for e in self.app.exception])
         self.assertEqual([t.label for t in self.app.tabs], ["Índices", "Metales", "Equity", "Small caps", "Cripto", "Argentina"])
-        # C2 conserva también el glosario de la vista anterior dentro del piloto.
-        self.assertEqual(sum(e.label == "Glosario" for e in self.app.expander), 7)
+        # Los pilotos de Índices y Metales conservan también su vista anterior.
+        self.assertEqual(sum(e.label == "Glosario" for e in self.app.expander), 8)
 
     def test_every_rendered_column_and_metric_has_help(self):
         for element in self.app.dataframe:

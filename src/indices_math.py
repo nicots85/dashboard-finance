@@ -165,6 +165,22 @@ def relative_performance(series, benchmark, sessions=20):
     return pd.DataFrame(rows)
 
 
+def ratio_analysis(y, x, window=50):
+    """Ratio sobre cierres comunes positivos; media simple y desvío muestral."""
+    y = pd.to_numeric(y, errors="coerce")
+    x = pd.to_numeric(x, errors="coerce")
+    y = y[~y.index.duplicated(keep="last")]
+    x = x[~x.index.duplicated(keep="last")]
+    pair = pd.concat([y.rename("y"), x.rename("x")], axis=1, join="inner").astype(float).dropna().sort_index()
+    pair = pair[np.isfinite(pair).all(axis=1) & (pair > 0).all(axis=1)]
+    out = pd.DataFrame({"ratio": pair.y / pair.x})
+    out["mean"] = out.ratio.rolling(window, min_periods=window).mean()
+    std = out.ratio.rolling(window, min_periods=window).std(ddof=1).replace(0, np.nan)
+    out["distance_pct"] = (out.ratio / out["mean"] - 1) * 100
+    out["distance_std"] = (out.ratio - out["mean"]) / std
+    return out
+
+
 def session_vwap(bars):
     """Precio típico y volumen del MISMO instrumento. Varianza ponderada poblacional."""
     if "symbol" in bars and bars.symbol.nunique() > 1:

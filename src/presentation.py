@@ -17,9 +17,12 @@ def _catalog(assets_time, glossary_time, pairs_time, pilot_time):
     glossary = yaml.safe_load((ROOT / "config/glossary.yaml").read_text(encoding="utf-8"))
     pairs = yaml.safe_load((ROOT / "config/pairs.yaml").read_text(encoding="utf-8"))
     names = {symbol: name for section in assets.values() for symbol, name in section.get("nombres", {}).items()}
-    pilot_file = ROOT / "config/indices_pilot.yaml"
+    pilot_file = ROOT / "config/sections.yaml"
     if pilot_file.exists():
-        names.update(yaml.safe_load(pilot_file.read_text(encoding="utf-8"))["names"])
+        sections = yaml.safe_load(pilot_file.read_text(encoding="utf-8"))
+        for section in sections.values():
+            if section.get("enabled", False):
+                names.update(section.get("names", {}))
     return assets, glossary, pairs, names
 
 
@@ -29,7 +32,7 @@ _active_catalog = None
 def refresh_catalog():
     """Una sola lectura por ejecución de la app; las ediciones entran al recargar."""
     global _active_catalog
-    pilot_file = ROOT / "config/indices_pilot.yaml"
+    pilot_file = ROOT / "config/sections.yaml"
     _active_catalog = _catalog(*[(ROOT / "config" / file).stat().st_mtime_ns
                                 for file in ("assets.yaml", "glossary.yaml", "pairs.yaml")],
                               pilot_file.stat().st_mtime_ns if pilot_file.exists() else 0)

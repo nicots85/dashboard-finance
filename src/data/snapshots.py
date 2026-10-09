@@ -37,7 +37,7 @@ def app_version():
 
 def config_hash():
     h = hashlib.sha256()
-    for name in ["calc.yaml", "operations.yaml", "assets.yaml", "pairs.yaml", "indices_pilot.yaml"]:
+    for name in ["calc.yaml", "operations.yaml", "assets.yaml", "pairs.yaml", "sections.yaml"]:
         path = ROOT / "config" / name
         if path.exists():
             h.update(path.read_bytes())

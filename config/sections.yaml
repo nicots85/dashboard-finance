@@ -2,6 +2,7 @@
 # Cada sección tiene los mismos campos; "indices" reproduce fielmente el
 # antiguo config/indices_pilot.yaml (que este archivo reemplaza).
 indices:
+  enabled: true
   names:
     "NQ=F": "Nasdaq 100 — futuro de referencia"
     QQQ: "Nasdaq 100 — fondo cotizado de referencia"
@@ -45,6 +46,15 @@ indices:
     minimum_volume_coverage: 0.95
   daily_means: [50, 200]
   relative_strength_sessions: 20
+  label: "Índices"
+  noun: "índices"
+  noun_singular: "Índice"
+  macro_series: [DGS10, T10Y2Y, VIXCLS]
+  benchmark: "^GSPC"
+  benchmark_label: "S&P 500"
+  benchmark_hover: "S&P"
+  cointegration_scales: ["1D", "1h", "4h"]
+  diagnostic_fields: [names, references, calendars, default_ranges, vwap, daily_means, relative_strength_sessions, cointegration, cfdfuture_comparison]
   cointegration:
     primary_window: 500
     contrast_window: 1000
@@ -59,6 +69,7 @@ indices:
     status: pending
     label: "Comparación de NQ=F frente al CFD USTEC: pendiente de tu validación con el bróker."
 metales:
+  enabled: true
   names:
     "GC=F": "Oro — futuro continuo"
     "SI=F": "Plata — futuro continuo"
@@ -70,10 +81,10 @@ metales:
     "HG=F": []
     "PL=F": []
   calendars:
-    "GC=F": CME_Equity
-    "SI=F": CME_Equity
-    "HG=F": CME_Equity
-    "PL=F": CME_Equity
+    "GC=F": CMEGlobex_Gold
+    "SI=F": CMEGlobex_Silver
+    "HG=F": CMEGlobex_Copper
+    "PL=F": CMEGlobex_Platinum
   default_ranges:
     "1m": {sessions: 2}
     "5m": {sessions: 5}
@@ -87,6 +98,30 @@ metales:
     minimum_volume_coverage: 0.95
   daily_means: [50, 200]
   relative_strength_sessions: 20
+  label: "Metales"
+  noun: "metales"
+  noun_singular: "Metal"
+  macro_series: [DGS10, DFII10, DTWEXBGS]
+  benchmark: "DTWEXBGS"
+  benchmark_label: "dólar"
+  benchmark_hover: "USD"
+  cointegration_scales: ["1D"]
+  detail_subject: "El metal"
+  deduplicate_daily_sessions: true
+  pair_selector_label: "Par de metales"
+  benchmark_notice: "Comparación de rendimientos porcentuales contra el Índice amplio del dólar estadounidense (DTWEXBGS) de FRED, sobre 20 sesiones comunes. No es una conversión monetaria ni cotización en vivo; el corte de la comparación puede preceder al último cierre de los metales."
+  asset_timeframes:
+    "PL=F": ["1D"]
+  vwap_disabled: ["PL=F"]
+  vwap_sessions: [complete]
+  asset_notices:
+    "PL=F": "Platino: solo lectura diaria y medias de cierres. No se muestra VWAP porque la cobertura de volumen intradía es incompleta."
+  notices:
+    - "Los futuros continuos de Yahoo pueden tener saltos en los cambios de contrato; no se verificó cómo los ajusta."
+    - "VWAP de Oro, Plata y Cobre: precio típico y volumen del mismo futuro. Sesión completa provisional: reinicio a las 18:00 de Nueva York, con ajuste por horario de verano. Platino se limita a diario, sin VWAP."
+  reading_notes: "Primero mirá si varios metales y escalas coinciden. La fuerza relativa compara rendimientos frente al dólar sobre sesiones comunes; estar lejos de una media no equivale a ser más fuerte. El ratio Oro/Plata compara ambos cierres, y su distancia usa media y desvío de 50 sesiones comunes. La tasa real a 10 años, la tasa nominal y el dólar dan contexto. Las bandas de VWAP describen distancia, no aseguran reversión. Platino solo se muestra en diario, sin VWAP. Cointegración: solo 1D. Revisá fechas, fuente y velas abiertas. La dirección se detecta mejor en subas que en caídas: en caídas históricas conocidas marcó como bajista entre 37% y 56% de las velas; un lateral o alcista débil durante una caída no es necesariamente un error."
+  ratios:
+    - {y: "GC=F", x: "SI=F", label: "Oro / Plata", window: 50, chart_sessions: 500}
   cointegration:
     primary_window: 500
     contrast_window: 1000
@@ -98,6 +133,7 @@ metales:
     johansen_diff_lags: 1
     rolling_step: 21
 cripto:
+  enabled: false
   names:
     "BTC/USDT": "Bitcoin en Binance"
     "ETH/USDT": "Ethereum en Binance"

@@ -12,7 +12,7 @@ from update_data import update_market_asset
 
 def update_references(db_path=DEFAULT_DB_PATH, timeframes=None, progress=None):
     tfs = timeframes or ["1m", "5m", "15m", "1h", "4h", "1D"]
-    cfg = yaml.safe_load((ROOT / "config/indices_pilot.yaml").read_text(encoding="utf-8"))
+    cfg = yaml.safe_load((ROOT / "config/sections.yaml").read_text(encoding="utf-8"))["indices"]
     # IWM ya pertenece a Small caps: no se redescarga desde el piloto.
     symbols = list(cfg["names"])
     ops = yaml.safe_load((ROOT / "config/operations.yaml").read_text(encoding="utf-8"))["backups"]

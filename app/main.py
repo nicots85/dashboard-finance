@@ -545,6 +545,19 @@ def render_seccion(seccion):
                 "untracked": "Recalcular para comprobar", "no_calculable": "No calculable"})
             dataframe_help(dates, use_container_width=True, hide_index=True)
 
+    # La vista anterior de Índices conserva el contenido de 63c8401 para
+    # permitir una comparación real. El piloto muestra su propia alineación.
+    if seccion == "indices":
+        with st.expander("Alineación por activo"):
+            from src.indices_math import alignment
+            for sym in activos:
+                sem = semaforos.get(sym, {}).get("trends", {})
+                directions = {tf: sem.get(tf, "sin datos") for tf in ALL_TF}
+                align = alignment(directions)
+                st.write(f"**{asset_label(sym)}** — {align['label']}")
+                for group, v in align["groups"].items():
+                    st.caption(f"{group}: {v['available']} de {v['total']} disponibles; {v['up']} hacia arriba, {v['down']} hacia abajo, {v['weak']} débiles.")
+
     # g) Cómo leer esto (adaptado a la sección)
     with st.expander("Cómo leer esto"):
         st.markdown(rich_text(NOTAS_SECCION.get(seccion, NOTAS_BASE)), unsafe_allow_html=True)
@@ -842,7 +855,7 @@ def main():
     with tabs[0]:
         render_section_pilot(DB_PATH, render_seccion, section="indices")
     with tabs[1]:
-        render_seccion("metales")
+        render_section_pilot(DB_PATH, render_seccion, section="metales")
     with tabs[2]:
         render_seccion("equity")
     with tabs[3]:

@@ -1,126 +1,99 @@
-"""Regresión OLD vs NEW de la pestaña Índices (sin cambios visibles del refactor).
+"""Regresión AppTest real: 63c8401 vs 26e1a77, y 63c8401 vs código actual.
 
-Compara dos volcados sobre la MISMA base de datos:
-  - OLD = código del commit 63c8401 (git worktree, data enlazada = misma DB)
-  - NEW = código actual del árbol de trabajo (incluye cambios sin commitear)
-
-Cada volcado tiene:
-  - "apptest": vista por defecto de la pestaña Índices vía AppTest, normalizada
-               (solo se enmascaran la hora de cálculo y la antigüedad de datos).
-  - "model":   datos exactos de view_model + cointegración con RELOJ FIJO.
-
-El test falla si hay diferencias fuera de lo permitido. Los cuerpos de
-expanders colapsados se capturan de forma no determinista en modo headless,
-por eso la comparación estricta de "apptest" usa solo el nivel superior; el
-contenido de expanders se verifica aparte (NEW no debe traer nada que OLD no
-tenga) y la data completa se prueba con el "model" de reloj fijo.
-
-Uso:  python -B test_regression.py
-Salta automáticamente si no existe data/finance.db.
+Todas las versiones usan la MISMA copia consistente de finance.db. Los dos
+commits históricos se ejecutan en git worktrees aislados. Se comparan tablas,
+valores formateados, indicadores, ayudas, textos, desplegables y todas las trazas
+de cada gráfico (incluyendo cointegración y detalle 1h/4h). No hay opt-in ni
+saltos de pruebas: un timeout o una excepción es un fallo.
+REGRESSION_OUTPUT_DIR permite conservar los volcados y el informe de la corrida.
 """
+import difflib
 import json
+import os
+from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parent
-DB = REPO / "data" / "finance.db"
-OLD_COMMIT = "63c8401"
-DUMPER = str(REPO / "_regdump.py")
+from src.data.backup import snapshot_database
+from src.data.db_manager import DEFAULT_DB_PATH
 
-
-def diffs(a, b, path=""):
-    out = []
-    if isinstance(a, dict) and isinstance(b, dict):
-        for k in sorted(set(a) | set(b)):
-            if k not in a:
-                out.append(f"{path}.{k}: solo en NEW")
-            elif k not in b:
-                out.append(f"{path}.{k}: solo en OLD")
-            else:
-                out += diffs(a[k], b[k], f"{path}.{k}")
-    elif isinstance(a, list) and isinstance(b, list):
-        if len(a) != len(b):
-            out.append(f"{path}: largo {len(a)} (OLD) vs {len(b)} (NEW)")
-        else:
-            for i, (x, y) in enumerate(zip(a, b)):
-                out += diffs(x, y, f"{path}[{i}]")
-    elif a != b:
-        out.append(f"{path}: {a!r} != {b!r}")
-    return out
+ROOT = Path(__file__).resolve().parent
 
 
-def signatures(elements):
-    s = set()
-    for e in elements:
-        v = e.get("value")
-        if isinstance(v, dict):
-            for k, val in v.items():
-                s.add((e["type"], k, json.dumps(val, ensure_ascii=False, sort_keys=True)[:120]))
-    return s
-
-
-def run_dumper(app_main_py, out_json):
-    result = subprocess.run([sys.executable, "-B", DUMPER, str(app_main_py), str(out_json)],
-                            capture_output=True, text=True, check=False)
-    if result.returncode:
-        tail = "\n".join((result.stderr or "").splitlines()[-25:])
-        raise AssertionError(f"_regdump falló para {app_main_py}\n{tail}")
+def compare(old, new):
+    differences = []
+    compared = 0
+    for state in sorted(set(old) | set(new)):
+        a, b = old.get(state, []), new.get(state, [])
+        compared += max(len(a), len(b))
+        # Alinear inserciones/borrados sin contar como distintos los nodos corridos.
+        encode = lambda values: [json.dumps(v, sort_keys=True, ensure_ascii=False) for v in values]
+        matcher = difflib.SequenceMatcher(a=encode(a), b=encode(b), autojunk=False)
+        for kind, i, end_i, j, end_j in matcher.get_opcodes():
+            if kind != "equal":
+                differences.append({"state": state, "operation": kind,
+                                    "old": a[i:end_i], "new": b[j:end_j]})
+    return {"elements_compared": compared,
+            "differences": sum(max(len(d["old"]), len(d["new"])) for d in differences),
+            "details": differences}
 
 
 class PilotRegression(unittest.TestCase):
-    def test_pilot_indices_igual_old_vs_new(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            wt = Path(tmp) / "old"
-            add = subprocess.run(["git", "-C", str(REPO), "worktree", "add", "--detach", str(wt), OLD_COMMIT],
-                                 capture_output=True, text=True, check=False)
-            if add.returncode:
-                self.skipTest(f"No se pudo crear el worktree de {OLD_COMMIT} (¿historial recortada?): {add.stderr[-200:]}")
+    def test_complete_apptest_regression(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp = Path(temporary)
+            db = tmp / "finance.db"
+            snapshot_database(DEFAULT_DB_PATH, str(db))
+            worktrees = []
             try:
-                # El worktree trae data/.gitkeep del checkout; reemplazarlo por un
-                # enlace a la MISMA base de datos real (solo lectura en estas rutas).
-                data_dir = wt / "data"
-                if data_dir.exists():
-                    subprocess.run(["rm", "-rf", str(data_dir)], check=True)
-                data_dir.symlink_to(DB.parent)
+                repos = {"current": ROOT}
+                for name, commit in [("old", "63c8401"), ("refactor", "26e1a77")]:
+                    repo = tmp / name
+                    subprocess.run(["git", "worktree", "add", "--detach", str(repo), commit],
+                                   cwd=ROOT, check=True, capture_output=True, text=True)
+                    worktrees.append(repo)
+                    repos[name] = repo
+                env = dict(os.environ, FINANCE_DB_PATH=str(db), OPENBLAS_NUM_THREADS="1",
+                           OMP_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1")
 
-                old_json, new_json = Path(tmp) / "old.json", Path(tmp) / "new.json"
-                run_dumper(wt / "app" / "main.py", old_json)
-                run_dumper(REPO / "app" / "main.py", new_json)
-                old = json.loads(old_json.read_text())
-                new = json.loads(new_json.read_text())
+                def dump(name):
+                    output = tmp / f"{name}.json"
+                    cmd = [sys.executable, "-B", str(ROOT / "_regdump.py"), str(repos[name]), str(output)]
+                    if name == "refactor":
+                        cmd.append("--original")
+                    result = subprocess.run(cmd, cwd=repos[name], env=env, capture_output=True,
+                                            text=True, timeout=1800)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr[-6000:])
+                    return json.loads(output.read_text(encoding="utf-8"))
+
+                # Procesos independientes, secuenciales: tres apps simultáneas
+                # con esta base real causan presión de memoria y timeouts.
+                dumps = {name: dump(name) for name in repos}
+                original_old = {key: dumps["old"][key] for key in dumps["refactor"]}
+                report = {"63c8401_vs_26e1a77": compare(original_old, dumps["refactor"]),
+                          "63c8401_vs_current": compare(dumps["old"], dumps["current"])}
+                self.assertGreater(report["63c8401_vs_26e1a77"]["differences"], 0,
+                                   "La prueba debe detectar las regresiones reales del primer refactor")
+                for name, result in report.items():
+                    print(f"\n{name}: {result['elements_compared']} elementos comparados; {result['differences']} diferencias")
+                    for detail in result["details"]:
+                        print(f"- {detail['state']}: {detail['operation']} · {len(detail['old'])} anteriores / {len(detail['new'])} actuales")
+                destination = os.environ.get("REGRESSION_OUTPUT_DIR")
+                if destination:
+                    folder = Path(destination)
+                    folder.mkdir(parents=True, exist_ok=True)
+                    for name in dumps:
+                        shutil.copyfile(tmp / f"{name}.json", folder / f"{name}.json")
+                    (folder / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+                self.assertEqual(report["63c8401_vs_current"]["differences"], 0,
+                                 "Hay diferencias reales de Índices: consultar report.json")
             finally:
-                subprocess.run(["git", "-C", str(REPO), "worktree", "remove", "--force", str(wt)],
-                               capture_output=True, text=True, check=False)
-                subprocess.run(["git", "-C", str(REPO), "worktree", "prune"], check=False)
-
-        # (A) Vista por defecto, nivel superior (determinista)
-        ui_old = [e for e in old["apptest"] if not e["in_expander"]]
-        ui_new = [e for e in new["apptest"] if not e["in_expander"]]
-        dui = diffs(ui_old, ui_new, "UI")
-        # (B) Data exacta con reloj fijo (alineación, calidad, rendimiento, cointegración)
-        dmodel = diffs(old["model"], new["model"], "MODEL")
-        # (C) Dentro de expanders: NEW no debe traer bloques ausentes en OLD
-        exp_only_new = signatures([e for e in new["apptest"] if e["in_expander"]]) - \
-            signatures([e for e in old["apptest"] if e["in_expander"]])
-
-        print("\n=== Regresión pestaña Índices (esta corrida) ===")
-        print(f"AppTest nivel superior comparados: {len(ui_old)} (OLD) vs {len(ui_new)} (NEW); diferencias: {len(dui)}")
-        print(f"Model (reloj fijo) activos: {len(old['model']['rows'])} filas, "
-              f"{len(old['model']['quality']['rows'])} calidad, {len(old['model']['cointegration'])} pares; diferencias: {len(dmodel)}")
-        print(f"AppTest dentro-de-expanders: {len([e for e in new['apptest'] if e['in_expander']])} (NEW) — "
-              f"bloques solo en NEW: {len(exp_only_new)}")
-        for label, dd in [("UI", dui), ("MODEL", dmodel)]:
-            for x in dd[:40]:
-                print(f"   {label} {x}")
-        for x in sorted(exp_only_new)[:20]:
-            print(f"   EXP-NEW {x}")
-
-        self.assertEqual(dui, [], f"{len(dui)} diferencias en la vista por defecto")
-        self.assertEqual(dmodel, [], f"{len(dmodel)} diferencias en los datos (reloj fijo)")
-        self.assertEqual(exp_only_new, set(), "NEW introdujo contenido de expander ausente en OLD")
+                for repo in worktrees:
+                    subprocess.run(["git", "worktree", "remove", "--force", str(repo)],
+                                   cwd=ROOT, check=True, capture_output=True)
 
 
 if __name__ == "__main__":

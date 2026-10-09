@@ -123,7 +123,7 @@ class IndicesPilotTests(unittest.TestCase):
         self.assertTrue(unexpected_gaps(df,"1m","NASDAQ"))  # faltan los minutos 09:30/09:31 del lunes
 
     def test_pair_short_and_long_share_exact_beta(self):
-        cfg=yaml.safe_load((ROOT/"config/indices_pilot.yaml").read_text())["cointegration"]
+        cfg=yaml.safe_load((ROOT/"config/sections.yaml").read_text())["indices"]["cointegration"]
         cfg={**cfg,"primary_window":50,"contrast_window":100,"short_spread_window":25,"rolling_step":50}
         rng=np.random.default_rng(10)
         x=np.cumsum(rng.normal(0,.01,300))+5
@@ -139,7 +139,7 @@ class IndicesPilotTests(unittest.TestCase):
         self.assertEqual(result["evaluated_blocks"],5)
 
     def test_insufficient_history_and_errors_are_no_calculable(self):
-        cfg=yaml.safe_load((ROOT/"config/indices_pilot.yaml").read_text())["cointegration"]
+        cfg=yaml.safe_load((ROOT/"config/sections.yaml").read_text())["indices"]["cointegration"]
         short=pd.Series(np.linspace(1,2,100))
         self.assertEqual(pair_analysis(short,short,cfg)["state"],"no calculable")
         long=pd.Series(np.linspace(1,2,2500))
