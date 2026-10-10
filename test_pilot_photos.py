@@ -32,6 +32,7 @@ class PilotPhotoTests(unittest.TestCase):
             new_id = take_snapshot(db, trigger="test_pilot_fields")
             photo = get_photo(new_id, db)
             self.assertEqual(photo["content"]["schema_version"], SCHEMA_VERSION)
+            self.assertIn("Alt 3", photo["direction_definition_label"])
             metals = photo["content"]["sections"]["metales"]
             ratio = metals["ratios"][0]
             for field in ("ratio", "mean", "distance_pct", "distance_std", "window", "last_session"):
@@ -39,11 +40,17 @@ class PilotPhotoTests(unittest.TestCase):
                 self.assertIsNotNone(ratio[field])
             self.assertEqual(len(metals["relative_strength"]["between_assets"]), 4)
             self.assertEqual(len(metals["relative_strength"]["against_benchmark"]), 4)
+            crypto = photo["content"]["sections"]["cripto"]
+            self.assertEqual(crypto["kpis"]["total"], 6)
+            self.assertEqual(len(crypto["ratios"]), 2)
+            self.assertEqual(len(crypto["pair_coverage"]), 9)
+            self.assertEqual(crypto["session_vwaps"]["HYPE/USDT"]["exchange"], "bybit")
+            self.assertTrue(all(0 <= ratio["percentile"] <= 100 for ratio in crypto["ratios"]))
             with sqlite3.connect(db) as conn:
                 content = photo["content"]
                 content["schema_version"] = 5
                 for section in ("metales", "cripto"):
-                    for key in ("ratios", "relative_strength", "kpis", "pilot_indicators_calculated_at"):
+                    for key in ("ratios", "relative_strength", "kpis", "pilot_indicators_calculated_at", "session_vwaps", "exchange_sources", "pair_coverage"):
                         content["sections"][section].pop(key, None)
                 original = json.dumps(content, ensure_ascii=False)
                 conn.execute("UPDATE snapshot_photos SET sections_json=? WHERE id=?", (original, new_id))

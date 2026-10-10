@@ -748,6 +748,8 @@ def render_historial():
                                    help="Distancia porcentual del ratio a su media, guardada en la foto.")
                     cols[2].metric("Distancia por desvío de esa foto", f"{ratio['distance_std']:+.2f}" if ratio.get("distance_std") is not None else "Sin datos",
                                    help="Distancia del ratio por desvío muestral guardada en la foto.")
+                    if ratio.get("percentile") is not None:
+                        st.caption(f"Percentil guardado del ratio: {ratio['percentile']:.1f}%")
                 for key, title in [("between_assets", "Rendimiento entre activos de esa foto"),
                                    ("against_benchmark", "Comparación frente al dólar de esa foto")]:
                     if relative.get(key):
@@ -759,6 +761,10 @@ def render_historial():
                             "_index": st.column_config.Column(help="Número de fila de la lectura guardada.")})
                 if relative.get("benchmark_last_session"):
                     st.caption("Último dato del benchmark en esa foto: " + relative["benchmark_last_session"])
+                if stored_section.get("session_vwaps"):
+                    for symbol, vwap in stored_section["session_vwaps"].items():
+                        pct = f"{vwap['distance_pct']:+.2f}%" if vwap.get("distance_pct") is not None else "sin VWAP"
+                        st.write(asset_label(symbol) + " · " + vwap["exchange"].title() + " · VWAP " + pct + " · sesión " + vwap["session"] + " · corte " + vwap["common_cutoff"])
         arg = sections.get("argentina", {}).get("ccl", {})
         if arg.get("median"):
             st.metric("CCL mediano de esa foto", f"${arg['median']:,.0f}")
@@ -888,7 +894,7 @@ def main():
     with tabs[3]:
         render_seccion("smallcaps")
     with tabs[4]:
-        render_seccion("cripto")
+        render_section_pilot(DB_PATH, render_seccion, section="cripto")
     with tabs[5]:
         render_seccion("argentina")
 

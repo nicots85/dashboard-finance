@@ -45,7 +45,11 @@ def prepare_bars(df, symbol, tf, calendar_name, now=None, regular=False):
         return df.assign(session=pd.Series(dtype=str), bar_end=pd.Series(dtype="datetime64[ns, UTC]"), closed=pd.Series(dtype=bool))
     out = df.copy().sort_values("timestamp").drop_duplicates("timestamp")
     out["timestamp"] = pd.to_datetime(out.timestamp, utc=True)
-    if tf == "1D":
+    if calendar_name == "24/7":
+        # No usar ruedas bursátiles, noches, feriados ni zona de Nueva York.
+        out["session"] = out.timestamp.dt.strftime("%Y-%m-%d")
+        out["bar_end"] = out.timestamp + pd.Timedelta(days=1) if tf == "1D" else out.timestamp + pd.Timedelta(seconds=SECONDS[tf])
+    elif tf == "1D":
         days = out.timestamp.dt.tz_convert(daily_timezone(symbol, calendar_name)).dt.date
         days = pd.Series(days.to_numpy(), index=out.index)
         if symbol.endswith("=F"):
@@ -84,6 +88,8 @@ def market_minutes_between(start, end, calendar_name):
     start, end = pd.to_datetime(start, utc=True), pd.to_datetime(end, utc=True)
     if end <= start:
         return 0.0
+    if calendar_name == "24/7":
+        return (end - start).total_seconds() / 60
     total = 0.0
     for a, b, _ in trading_segments(calendar_name, start, end):
         left, right = max(a, start), min(b, end)
@@ -103,7 +109,9 @@ def freshness(bars, tf, calendar_name, now=None):
         completed = sch[sch.market_close <= now]
         expected = str(completed.index[-1].date()) if len(completed) else last.session
         missing = int(((sch.index.astype(str).str[:10] > last.session) & (sch.market_close <= now)).sum())
-        return {"stale": last.session < expected, "label": f"⚠ Faltan {missing} ruedas" if last.session < expected else "Última rueda disponible",
+        unit = "días UTC" if calendar_name == "24/7" else "ruedas"
+        current = "Último cierre UTC disponible" if calendar_name == "24/7" else "Última rueda disponible"
+        return {"stale": last.session < expected, "label": f"⚠ Faltan {missing} {unit}" if last.session < expected else current,
                 "market_minutes": None, "last_data": last.bar_end, "session": last.session}
     minutes = market_minutes_between(last.bar_end, now, calendar_name)
     threshold = max(20, 2 * SECONDS[tf] / 60)

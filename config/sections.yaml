@@ -134,14 +134,21 @@ metales:
     johansen_diff_lags: 1
     rolling_step: 21
 cripto:
-  enabled: false
+  enabled: true
   names:
-    "BTC/USDT": "Bitcoin en Binance"
-    "ETH/USDT": "Ethereum en Binance"
-    "SOL/USDT": "Solana en Binance"
-    "XRP/USDT": "XRP en Binance"
-    "HYPE/USDT": "HYPE en Bybit"
-    "BNB/USDT": "BNB en Binance"
+    "BTC/USDT": "Bitcoin"
+    "ETH/USDT": "Ethereum"
+    "SOL/USDT": "Solana"
+    "XRP/USDT": "XRP de la red XRP Ledger"
+    "HYPE/USDT": "Hyperliquid"
+    "BNB/USDT": "BNB de la red BNB Chain"
+  exchanges:
+    "BTC/USDT": binance
+    "ETH/USDT": binance
+    "SOL/USDT": binance
+    "XRP/USDT": binance
+    "HYPE/USDT": bybit
+    "BNB/USDT": binance
   references:
     "BTC/USDT": []
     "ETH/USDT": []
@@ -169,6 +176,30 @@ cripto:
     minimum_volume_coverage: 0.95
   daily_means: [50, 200]
   relative_strength_sessions: 20
+  label: "Cripto"
+  noun: "criptomonedas"
+  noun_singular: "Cripto"
+  summary_layout: crypto
+  summary_distance: vwap
+  default_timeframe: "15m"
+  show_relative_strength: false
+  macro_series: [DTWEXBGS, VIXCLS]
+  benchmark: "BTC/USDT"
+  detail_subject: "La cripto"
+  pair_selector_label: "Par de criptomonedas"
+  vwap_sessions: [utc]
+  vwap_mode: utc
+  cointegration_scales: ["1D", "1h", "4h"]
+  cointegration_by_tf:
+    "1h": {rolling_step: 250}
+    "4h": {rolling_step: 250}
+  notices:
+    - "Mercado abierto todos los días y a toda hora. Los fines de semana no reducen la antigüedad: un dato atrasado se marca también sábado o domingo."
+    - "VWAP: reinicio confirmado a las 00:00 UTC, con precio típico y volumen del mismo instrumento y la misma exchange. Hyperliquid usa Bybit como fuente preferida; los cambios de exchange se avisan y no se mezclan sus volúmenes."
+  reading_notes: "El conteo de subas corresponde al último cierre diario disponible y no es una cotización en vivo. La alineación excluye escalas atrasadas. ETH/BTC y SOL/BTC comparan cierres diarios comunes; su distancia usa una media de 50 cierres y el percentil compara la distancia por desvío contra sus últimas 250 observaciones válidas. Un ratio creciente indica mejor desempeño de la primera cripto frente a Bitcoin, no dominancia. El VWAP reinicia a las 00:00 UTC y compara precio y volumen de la misma exchange; su mayor separación se mide en la misma sesión y corte común, y no asegura reversión. Los fines de semana son días de mercado. El dólar y VIX son contexto diario con rezago. La estabilidad de cointegración requiere cinco bloques sin solape: los pares con Solana no reciben una regla reducida hasta tu aprobación. La dirección se detecta mejor en subas que en caídas: en caídas conocidas marcó como bajista entre 37% y 56% de las velas."
+  ratios:
+    - {y: "ETH/USDT", x: "BTC/USDT", label: "ETH/BTC", window: 50, percentile_window: 250, chart_sessions: 500}
+    - {y: "SOL/USDT", x: "BTC/USDT", label: "SOL/BTC", window: 50, percentile_window: 250, chart_sessions: 500}
   cointegration:
     primary_window: 500
     contrast_window: 1000

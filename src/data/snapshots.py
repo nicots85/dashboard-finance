@@ -19,9 +19,14 @@ from src.data.db_manager import DEFAULT_DB_PATH
 from src.data.four_hour import series_descriptor, policy
 from src.indices_math import alignment, prepare_bars, session_vwap
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
+
+
+def direction_definition_label(content):
+    return {"alt1": "definición Alt 1", "alt3_umbral005": "definición Alt 3 (umbral 0,05 × ATR)"}.get(
+        content.get("direction_definition"), "definición antigua")
 
 
 def machine_name():
@@ -81,9 +86,19 @@ def _instrument_and_session(sym):
 
 
 def _distance_for_tf(conn, sym, tf):
-    df = pd.read_sql_query("SELECT timestamp,open,high,low,close,volume FROM candles WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 60",
-                           conn, params=(sym, tf))
-    df = df.iloc[::-1].reset_index(drop=True)
+    crypto = "/" in sym
+    if crypto:
+        from src.pilot_math import select_exchange
+        from src.indices_math import SECONDS
+        limit = max(60, 86400 // SECONDS.get(tf, 86400) + 1)
+        df = pd.read_sql_query("SELECT * FROM candles WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT ?",
+                               conn, params=(sym, tf, limit))
+        expected = yaml.safe_load((ROOT / "config/sections.yaml").read_text())["cripto"]["exchanges"][sym]
+        df, info = select_exchange(df, expected)
+    else:
+        df = pd.read_sql_query("SELECT timestamp,open,high,low,close,volume FROM candles WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 60",
+                               conn, params=(sym, tf))
+    df = df.sort_values("timestamp").reset_index(drop=True)
     if df.empty or len(df) < 50:
         return None
     df["timestamp"] = pd.to_datetime(df.timestamp, utc=True, format="mixed")
@@ -98,18 +113,24 @@ def _distance_for_tf(conn, sym, tf):
     elif sym == "^N225":
         cal = "JPX"
     bars = prepare_bars(df, instrument, tf, cal)
+    if crypto:
+        bars = bars[bars.closed]
     if bars.empty:
         return None
     ema50 = bars.close.ewm(span=50, adjust=False).mean()
     dist_ema = float((bars.close.iloc[-1] - ema50.iloc[-1]) / ema50.iloc[-1] * 100) if len(ema50) else None
     dist_vwap = None
     try:
-        vw = session_vwap(bars)
-        if vw.vwap.notna().any() and vw.vwap.iloc[-1] > 0:
+        source = bars[bars.session == bars.session.iloc[-1]] if crypto else bars
+        vw = session_vwap(source)
+        if (not crypto or tf != "1D") and vw.vwap.notna().any() and vw.vwap.iloc[-1] > 0:
             dist_vwap = float((vw.close.iloc[-1] - vw.vwap.iloc[-1]) / vw.vwap.iloc[-1] * 100)
     except Exception:
         pass
-    return {"ema50_pct": dist_ema, "vwap_pct": dist_vwap, "instrument": instrument, "session": session_name}
+    result = {"ema50_pct": dist_ema, "vwap_pct": dist_vwap, "instrument": instrument, "session": session_name}
+    if crypto:
+        result.update({"exchange": info["exchange"], "vwap_reset": "00:00 UTC", "vwap_base_tf": tf})
+    return result
 
 
 def section_snapshot(conn, section, assets_cfg):
@@ -235,7 +256,9 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
         from src.data.pilot_snapshot import section_indicators
         for section in ("metales", "cripto"):
             if pilots[section].get("enabled"):
-                sections[section].update(section_indicators(conn, section, assets_cfg[section]["activos"], pilots[section], now))
+                pair_cfg = yaml.safe_load((ROOT / "config/pairs.yaml").read_text())[section]
+                sections[section].update(section_indicators(conn, section, assets_cfg[section]["activos"], pilots[section], now,
+                                                             calc_config=params, pairs=pair_cfg))
         sections["argentina"]["ccl"] = argentina_ccl(conn)
         photo_id = f"{machine_name()}-{now.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
         conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
@@ -258,7 +281,7 @@ def list_photos(db_path=DEFAULT_DB_PATH, limit=200):
         for r in rows:
             item = dict(zip(["id", "created_at", "machine", "trigger", "status", "late", "app_version", "params_hash", "tfs_scope", "errors"], r[:10]))
             item["four_hour_label"] = "4h versionada" if json.loads(r[10]).get("four_hour_format") == 2 else "4h antigua"
-            item["direction_definition_label"] = "definición Alt 1" if json.loads(r[10]).get("direction_definition") == "alt1" else "definición antigua"
+            item["direction_definition_label"] = direction_definition_label(json.loads(r[10]))
             photos.append(item)
         return photos
     finally:
@@ -278,7 +301,7 @@ def get_photo(photo_id, db_path=DEFAULT_DB_PATH):
         data["content"] = json.loads(data.pop("sections_json"))
         # Marca derivada al leer; NO reescribe ni completa contenido histórico.
         data["four_hour_label"] = "4h versionada" if data["content"].get("four_hour_format") == 2 else "4h antigua"
-        data["direction_definition_label"] = "definición Alt 1" if data["content"].get("direction_definition") == "alt1" else "definición antigua"
+        data["direction_definition_label"] = direction_definition_label(data["content"])
         return data
     finally:
         conn.close()

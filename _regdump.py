@@ -29,6 +29,7 @@ def normalize(value):
         return [normalize(v) for v in value]
     if isinstance(value, str):
         value = re.sub(r"Calculado: \d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}", "Calculado: <hora>", value)
+        value = re.sub(r"\bFaltan \d+ ruedas\b", "Faltan <edad> ruedas", value)
         return re.sub(r"\bhace \d+ (?:días|dias|min|h|d)\b", "hace <edad>", value)
     if value is None or value is pd.NaT:
         return None
