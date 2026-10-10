@@ -19,7 +19,7 @@ from src.data.db_manager import DEFAULT_DB_PATH
 from src.data.four_hour import series_descriptor, policy
 from src.indices_math import alignment, prepare_bars, session_vwap
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
 
@@ -223,15 +223,20 @@ def argentina_ccl(conn):
 def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", errors=None, tfs_scope=None, late=False):
     assets_cfg = yaml.safe_load((ROOT / "config/assets.yaml").read_text())
     params = yaml.safe_load((ROOT / "config/calc.yaml").read_text())
+    pilots = yaml.safe_load((ROOT / "config/sections.yaml").read_text())
     conn = sqlite3.connect(db_path)
     try:
         ensure_table(conn)
+        now = pd.Timestamp.now(tz="UTC")
         sections = {}
         for section in SECTIONS:
             sections[section] = section_snapshot(conn, section, assets_cfg)
         sections["indices"]["kpis"] = indices_kpis(conn)
+        from src.data.pilot_snapshot import section_indicators
+        for section in ("metales", "cripto"):
+            if pilots[section].get("enabled"):
+                sections[section].update(section_indicators(conn, section, assets_cfg[section]["activos"], pilots[section], now))
         sections["argentina"]["ccl"] = argentina_ccl(conn)
-        now = datetime.now(timezone.utc)
         photo_id = f"{machine_name()}-{now.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
         conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
             photo_id, now.isoformat(timespec="seconds"), machine_name(), trigger, status, int(late),

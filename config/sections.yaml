@@ -108,6 +108,7 @@ metales:
   cointegration_scales: ["1D"]
   detail_subject: "El metal"
   deduplicate_daily_sessions: true
+  compare_all_assets: true
   pair_selector_label: "Par de metales"
   benchmark_notice: "Comparación de rendimientos porcentuales contra el Índice amplio del dólar estadounidense (DTWEXBGS) de FRED, sobre 20 sesiones comunes. No es una conversión monetaria ni cotización en vivo; el corte de la comparación puede preceder al último cierre de los metales."
   asset_timeframes:

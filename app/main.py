@@ -732,6 +732,33 @@ def render_historial():
             c1.metric("Más fuerte 20 ruedas", k.get("top_relative_20d") or "—")
             c2.metric("Más alineado", k.get("most_aligned") or "—")
             c3.metric("Más alejado", k.get("most_stretched_1d") or "—")
+        for section_name in ("metales", "cripto"):
+            stored_section = sections.get(section_name, {})
+            ratios = stored_section.get("ratios", [])
+            relative = stored_section.get("relative_strength", {})
+            with st.expander(f"Indicadores de {section_name.capitalize()} en esa foto"):
+                if not ratios and not relative:
+                    st.info("Esta foto no guardó esos indicadores. No se completan con datos actuales.")
+                for ratio in ratios:
+                    st.write(ratio["label"] + " · última sesión común: " + str(ratio.get("last_session") or "sin datos"))
+                    cols = st.columns(3)
+                    cols[0].metric("Ratio de esa foto", f"{ratio['ratio']:.6f}" if ratio.get("ratio") is not None else "Sin datos",
+                                   help="Cociente de cierres guardado al crear la foto, sin recalcular.")
+                    cols[1].metric("Distancia a la media de esa foto", f"{ratio['distance_pct']:+.2f}%" if ratio.get("distance_pct") is not None else "Sin datos",
+                                   help="Distancia porcentual del ratio a su media, guardada en la foto.")
+                    cols[2].metric("Distancia por desvío de esa foto", f"{ratio['distance_std']:+.2f}" if ratio.get("distance_std") is not None else "Sin datos",
+                                   help="Distancia del ratio por desvío muestral guardada en la foto.")
+                for key, title in [("between_assets", "Rendimiento entre activos de esa foto"),
+                                   ("against_benchmark", "Comparación frente al dólar de esa foto")]:
+                    if relative.get(key):
+                        st.caption(title)
+                        frame = pd.DataFrame(relative[key])
+                        frame["symbol"] = frame.symbol.map(asset_label)
+                        st.dataframe(frame, hide_index=True, column_config={
+                            **{column: st.column_config.Column(help="Valor y período guardados al crear esta foto; no se recalculan.") for column in frame.columns},
+                            "_index": st.column_config.Column(help="Número de fila de la lectura guardada.")})
+                if relative.get("benchmark_last_session"):
+                    st.caption("Último dato del benchmark en esa foto: " + relative["benchmark_last_session"])
         arg = sections.get("argentina", {}).get("ccl", {})
         if arg.get("median"):
             st.metric("CCL mediano de esa foto", f"${arg['median']:,.0f}")

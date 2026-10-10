@@ -15,6 +15,7 @@ from src.data.four_hour import prepare_stored, market_results, sufficient_histor
 from src.indices_math import (prepare_bars, freshness, alignment, daily_means, relative_performance,
     session_vwap, select_range, aggregate_4h, aggregate_regular_hours, unexpected_gaps, pair_analysis, ratio_analysis, ALIGNMENT_LEGEND, schedule)
 from src.presentation import asset_label, pair_label, help_text, TF_LABELS, section_terms, rich_text, definition
+from src.pilot_math import common_performance
 
 TFS = ["1m", "5m", "15m", "1h", "4h", "1D"]
 FUTURES_NOTICE = "Los futuros continuos de Yahoo pueden tener saltos en los cambios de contrato; no se verificó cómo los ajusta."
@@ -99,8 +100,10 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
             dates = pd.to_datetime(frows.timestamp, utc=True).dt.strftime("%Y-%m-%d")
             benchmark = pd.Series(frows.value.to_numpy(dtype=float), index=dates.to_numpy()).groupby(level=0).last()
     perf = relative_performance(series, benchmark, pilot["relative_strength_sessions"])
+    between = common_performance(series, pilot["relative_strength_sessions"]) if pilot.get("compare_all_assets") else None
     return {"rows": rows, "alignment": directions, "daily": daily, "frames": frames, "quality": pd.DataFrame(qualities),
             "performance": perf, "benchmark_last_session": str(benchmark.index.max()) if len(benchmark) else None,
+            "performance_between": between,
             "calculated_at": pd.Timestamp.now(tz="UTC").isoformat()}
 
 
@@ -431,6 +434,10 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
     aligned = max(model["alignment"], key=lambda s: model["alignment"][s]["score"], default=None)
     performance = model["performance"].dropna(subset=["relative_pp"])
     leader = performance.sort_values("relative_pp", ascending=False).iloc[0] if len(performance) else None
+    between = model.get("performance_between")
+    if between is not None:
+        ranked_between = between.dropna(subset=["return_pct"]).sort_values("return_pct", ascending=False)
+        leader = ranked_between.iloc[0] if len(ranked_between) else None
     distances = [r for r in rows if r["distance_std"] is not None]
     stretched = max(distances, key=lambda r: abs(r["distance_std"])) if distances else None
     c1, c2, c3, c4 = st.columns(4)
@@ -440,9 +447,14 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
         metric("Más alineado", asset_label(aligned) if aligned and model["alignment"][aligned]["available"] else "Sin escalas vigentes", ALIGNMENT_LEGEND,
                model["alignment"][aligned]["label"] if aligned else None)
     with c3:
-        metric("Más fuerte", asset_label(leader.symbol) if leader is not None else "Historia insuficiente",
-                f"Mayor diferencia de rendimiento frente al {benchmark_label} en las últimas 20 ruedas comunes. No es simplemente el más separado de su media.",
-                f"{leader.relative_pp:+.2f} puntos" if leader is not None else None)
+        if between is not None:
+            metric("Más fuerte entre metales", asset_label(leader.symbol) if leader is not None else "Historia común insuficiente",
+                   "Mayor rendimiento entre los cuatro metales sobre exactamente las mismas 20 ruedas comunes. Se compara rendimiento del precio, no distancia a la media ni al dólar.",
+                   f"{leader.return_pct:+.2f}%" if leader is not None else None)
+        else:
+            metric("Más fuerte", asset_label(leader.symbol) if leader is not None else "Historia insuficiente",
+                    f"Mayor diferencia de rendimiento frente al {benchmark_label} en las últimas 20 ruedas comunes. No es simplemente el más separado de su media.",
+                    f"{leader.relative_pp:+.2f} puntos" if leader is not None else None)
     with c4:
         metric("Más alejado", asset_label(stretched["symbol"]) if stretched else "Sin media válida",
                "Mayor separación absoluta de la media exponencial de 50 cierres, dividida por el desvío de 50 cierres. Ayuda a detectar precios estirados, no a predecir reversión.",
@@ -459,6 +471,18 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
                 r = m.iloc[0]
                 metric(asset_label(sid), f"{r.current_value:.2f}", help_text(sid, "cambio a un mes"), f"{r.change_1m:+.2f} en un mes")
                 st.caption("Fecha del dato: " + str(r.timestamp)[:10])
+    if between is not None:
+        st.subheader("Rendimiento entre los cuatro metales — 20 ruedas comunes")
+        if len(ranked_between):
+            ranked = ranked_between.sort_values("return_pct")
+            fig = go.Figure(go.Bar(x=ranked.return_pct, y=[asset_label(s) for s in ranked.symbol], orientation="h",
+                                  marker_color=["seagreen" if x >= 0 else "indianred" for x in ranked.return_pct],
+                                  hovertemplate="%{y}<br>Rendimiento: %{x:+.2f}%<extra></extra>"))
+            fig.update_layout(height=280, xaxis_title="Rendimiento porcentual sobre el mismo período")
+            st.plotly_chart(fig, width="stretch", key=pk("pilot_between_assets"))
+            st.caption(f"Período común de los cuatro: {leader.start_session} → {leader.last_session}. Son 20 cambios entre 21 cierres comunes.")
+        else:
+            st.info("No hay 21 cierres diarios comunes válidos para comparar los cuatro metales.")
     st.subheader(f"Fuerza relativa frente al {benchmark_label} — 20 ruedas")
     if pilot.get("benchmark_notice"):
         st.caption(pilot["benchmark_notice"] + " Último dato disponible: " + (model["benchmark_last_session"] or "sin datos"))
