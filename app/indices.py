@@ -15,7 +15,7 @@ from src.data.four_hour import prepare_stored, market_results, sufficient_histor
 from src.indices_math import (prepare_bars, freshness, alignment, daily_means, relative_performance,
     session_vwap, select_range, aggregate_4h, aggregate_regular_hours, unexpected_gaps, pair_analysis, ratio_analysis, ALIGNMENT_LEGEND, schedule)
 from src.presentation import asset_label, pair_label, help_text, TF_LABELS, section_terms, rich_text, definition
-from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage
+from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage, cointegration_parameters
 
 TFS = ["1m", "5m", "15m", "1h", "4h", "1D"]
 FUTURES_NOTICE = "Los futuros continuos de Yahoo pueden tener saltos en los cambios de contrato; no se verificó cómo los ajusta."
@@ -144,10 +144,13 @@ def cointegration_model(db_path, signature, settings_json, _minute, y, x, tf="1D
             sources.append(info["exchange"])
         bars = prepare_stored(raw, symbol, _minute, pilot["calendars"][symbol]) if tf == "4h" else prepare_bars(raw, symbol, tf, pilot["calendars"][symbol], _minute)
         values.append(bars[bars.closed].set_index("session" if tf == "1D" else "timestamp").close)
-    params = {**pilot["cointegration"], **pilot.get("cointegration_by_tf", {}).get(tf, {})}
+    common = pd.concat([value.rename(str(i)) for i, value in enumerate(values)], axis=1, join="inner").dropna()
+    common = common[(common > 0).all(axis=1)]
+    params = cointegration_parameters(pilot, y, x, tf, len(common))
     result = pair_analysis(*values, params)
     if crypto:
-        result.update({"timeframe": tf, "exchanges": sources, "required_blocks": params["required_blocks"], "block_size": params["primary_window"]})
+        result.update({"timeframe": tf, "exchanges": sources, "required_blocks": params["required_blocks"],
+                       "block_size": params.get("block_size", params["primary_window"])})
     return result
 
 
@@ -443,15 +446,15 @@ def render_cointegration(db_path, signature, settings_json, minute, pilot, pairs
                                 "Escala": TF_LABELS[item["tf"]], "Cierres comunes": item["bars"],
                                 "Bloques disponibles": item["blocks"], "Velas por bloque": item["block_size"],
                                 "Bloques requeridos": item["required_blocks"], "Último cierre común": item["last_common"],
-                                "Cobertura": "Suficiente" if item["enough"] else "Historia insuficiente"})
+                                "Cobertura": ("Historia limitada / provisional" if item["required_blocks"] < pilot["cointegration"]["required_blocks"] else "Suficiente") if item["enough"] else "Historia insuficiente"})
             coverage = pd.DataFrame(records)
             st.dataframe(coverage, hide_index=True, width="stretch", column_config={
-                **{column: st.column_config.Column(help="Cobertura de cierres comunes terminados y positivos, de la exchange indicada. Los bloques son disjuntos; una regla reducida para Solana no está aplicada.") for column in coverage.columns},
+                **{column: st.column_config.Column(help="Cobertura de cierres comunes terminados y positivos, de la exchange indicada. Los bloques son disjuntos; Solana usa cuatro solo cuando no llega a cinco, con aviso de historia limitada.") for column in coverage.columns},
                 "_index": st.column_config.Column(help="Número de fila de la cobertura del par.")})
-            st.caption("La regla aprobada requiere cinco bloques disjuntos de 500 velas por par y temporalidad. Los pares diarios con Solana que tienen cuatro bloques siguen como no calculables; la propuesta reducida queda pendiente de tu aprobación.")
+            st.caption("Bloques: 1000 velas en 1h y 500 en 4h y diario. Se evalúan todos los bloques completos disponibles, y el estado reciente se basa en los últimos cinco. Solana usa cuatro únicamente cuando su historia tiene entre cuatro y cinco bloques, con estado máximo Estable (provisional).")
         scales = pilot.get("cointegration_scales", ["1D", "1h", "4h"])
         tf = st.selectbox("Escala de la relación", scales, format_func=lambda t: TF_LABELS[t], key=pk("pilot_pair_tf"),
-                          help="Se evalúa cada temporalidad solo con historia suficiente: cinco bloques disjuntos de 500 cierres comunes. Se muestra cobertura por par." if crypto else "La estabilidad se evalúa solo en diario. En una y cuatro horas se informa historia insuficiente.")
+                          help="Bloques disjuntos de 1000 velas en 1h y 500 en 4h y diario. La regla normal requiere cinco; Solana admite cuatro con historia limitada cuando no llega a cinco." if crypto else "La estabilidad se evalúa solo en diario. En una y cuatro horas se informa historia insuficiente.")
         if tf != "1D" and not crypto:
             st.info("Historia insuficiente para evaluar estabilidad")
             return
@@ -471,6 +474,16 @@ def render_cointegration(db_path, signature, settings_json, minute, pilot, pairs
         with st.spinner("Comparando ventanas y la línea base larga..."):
             result = cointegration_model(db_path, signature, settings_json, minute, p["y"], p["x"], tf=tf)
         st.write("**Estado: " + result["state"] + "**")
+        if result.get("all_block_statistics") is not None:
+            statistics = result["all_block_statistics"]
+            if statistics["confirmation_pct"] is not None:
+                st.caption(f"Confirmó {statistics['confirmation_pct']:.1f}% de {statistics['available']} bloques disponibles · {statistics['evaluated']} evaluados · {statistics['confirmed']} confirmados en ambos órdenes.")
+            else:
+                st.caption(f"Porcentaje de todos los bloques no comprobable: {statistics['evaluated']} de {statistics['available']} evaluados · {statistics['confirmed']} confirmados · {statistics['failed']} pruebas inválidas.")
+            recent = result["recent_block_statistics"]
+            st.caption(f"Tramo reciente: {recent['confirmed']} confirmados de {recent['available']} bloques disponibles · {recent['evaluated']} evaluados · objetivo {recent['requested']} bloques.")
+            if result.get("limited_history"):
+                st.warning("Historia limitada: solo cuatro bloques disjuntos completos. La evaluación usa los cuatro y exige confirmación de todos para Estable (provisional); no equivale a la evidencia de la regla normal de cinco bloques.")
         if crypto:
             st.caption(f"{result['bars']} cierres comunes · {result['blocks']} bloques disponibles de {result['block_size']} velas · se requieren {result['required_blocks']}. Exchanges: " + " / ".join(s or "sin datos" for s in result["exchanges"]))
         if result.get("reason"):
@@ -485,7 +498,7 @@ def render_cointegration(db_path, signature, settings_json, minute, pilot, pairs
             metric("Últimas 250 velas", f"{result['z_short']:+.2f}", "Distancia frente a media y desvío recientes; no cambia la beta.")
         with c3:
             metric("Historia larga", f"{result['z_long']:+.2f}", "Distancia del mismo spread frente a toda la historia válida disponible.")
-        required_blocks = pilot["cointegration"]["required_blocks"] if crypto else 5
+        required_blocks = result["evaluated_blocks"] if crypto else 5
         st.caption(f"Bloques sin solape: {result['confirmed_blocks']} de {required_blocks} confirmaron ambos órdenes. Base larga: {result['start']} → {result['end']} ({result['bars']} cierres).")
         fig = go.Figure(go.Scatter(x=result["spread"].index, y=result["spread"], name="Diferencia con beta larga fija"))
         fig.add_hline(y=result["mean_long"], line_dash="dash", annotation_text="Media larga")
@@ -497,13 +510,15 @@ def render_cointegration(db_path, signature, settings_json, minute, pilot, pairs
         for col, label in [("p_yx", "Primero respecto del segundo"), ("p_xy", "Segundo respecto del primero")]:
             fig.add_trace(go.Scatter(x=r.date, y=r[col], name=label))
         fig.add_hline(y=.05, line_dash="dash", line_color="red", annotation_text="Umbral 0,05")
-        params = {**pilot["cointegration"], **pilot.get("cointegration_by_tf", {}).get(tf, {})}
+        params = cointegration_parameters(pilot, p["y"], p["x"], tf, result["bars"])
         title = f"p-valor móvil: {params['primary_window']} cierres, cada {params['rolling_step']} velas" if crypto else "p-valor móvil: 500 cierres, cada 21 ruedas"
         fig.update_layout(height=260, title=title, yaxis_range=[0, 1])
         st.plotly_chart(fig, width="stretch", key=pk("pilot_pvalue"))
         with st.expander("Pruebas y regla del estado"):
             st.json({"ventana_principal": result["primary"], "contraste": result["contrast"], "parámetros": params if crypto else pilot["cointegration"]})
-            st.write("Estable exige confirmación en ambos órdenes, contraste concordante, Johansen con una relación y al menos cuatro de cinco bloques confirmados. Intermitente indica confirmaciones parciales o discrepancias. Sin relación significa sin confirmación en los períodos evaluados.")
+            st.write("Estable (provisional) exige cuatro de cuatro bloques confirmados en ambos órdenes, contraste concordante y Johansen con una relación. La historia es limitada y el resultado no equivale a la regla normal." if result.get("limited_history") else "Estable exige confirmación en ambos órdenes, contraste concordante, Johansen con una relación y al menos cuatro de cinco bloques confirmados. Intermitente indica confirmaciones parciales o discrepancias. Sin relación significa sin confirmación en los períodos evaluados.")
+            if result.get("all_block_statistics") is not None:
+                st.json({"todos_los_bloques": result["all_block_statistics"], "tramo_reciente": result["recent_block_statistics"]})
         academic = "**Contexto académico — no interviene en los números:** Engle y Granger (1987) desarrollaron pruebas para estudiar un equilibrio entre series con tendencia; no estudiaron específicamente estos pares de índices. [Referencia verificada](https://doi.org/10.2307/1913236)."
         st.markdown(academic.replace("pares de índices", "pares de criptomonedas") if crypto else academic)
 

@@ -35,11 +35,14 @@ def live_tab(tab):
 def pair_state(tab):
     state = next(e.value for e in tab.markdown if e.value.startswith("**Estado:"))
     tests = []
+    block_statistics = None
     for element in tab.json:
         value = json.loads(element.value) if isinstance(element.value, str) else element.value
         if "ventana_principal" in value:
             tests.append(value)
-    return {"state": state, "tests": tests,
+        if "todos_los_bloques" in value:
+            block_statistics = value
+    return {"state": state, "tests": tests, "block_statistics": block_statistics,
             "captions": [c.value for c in tab.caption if "bloques" in c.value.lower() or "Bloques sin solape" in c.value]}
 
 
@@ -93,7 +96,7 @@ def print_live_reading(reading):
     for key, pair in reading["crypto_pairs"].items():
         print(f"- Cripto par {key}: {pair['state']}", flush=True)
         for caption in pair["captions"]:
-            if "cierres comunes" in caption or caption.startswith("Bloques sin solape"):
+            if "cierres comunes" in caption or caption.startswith(("Bloques sin solape", "Confirmó", "Porcentaje de todos", "Tramo reciente")):
                 print("- " + caption, flush=True)
     for row in reading["crypto_coverage"]:
         print(f"- Cobertura {row['Par']} · {row['Escala']}: {row['Cierres comunes']} cierres / {row['Bloques disponibles']} bloques / {row['Bloques requeridos']} requeridos", flush=True)
@@ -147,7 +150,7 @@ class CryptoTests(unittest.TestCase):
         self.assertFalse(unexpected_gaps(bars, "1h", "24/7"))
         self.assertTrue(unexpected_gaps(bars.iloc[[0, 3]], "1h", "24/7"))
 
-    def test_intraday_blocks_use_candles_and_do_not_relax_solana_rule(self):
+    def test_intraday_blocks_use_correct_sizes_and_closed_candles(self):
         pilot = yaml.safe_load((ROOT / "config/sections.yaml").read_text())["cripto"]
         count = 2500
         frames = {}
@@ -158,7 +161,7 @@ class CryptoTests(unittest.TestCase):
                 frame.loc[frame.index[-1], "closed"] = False
                 frames[(symbol, tf)] = frame
         coverage = pair_coverage(frames, [{"y": "BTC/USDT", "x": "ETH/USDT"}], pilot)
-        self.assertTrue(all(c["bars"] == 2499 and c["blocks"] == 4 and not c["enough"] for c in coverage))
+        self.assertTrue(all(c["bars"] == 2499 and c["blocks"] == (2 if c["tf"] == "1h" else 4) and not c["enough"] for c in coverage))
         self.assertEqual(pilot["cointegration"]["required_blocks"], 5)
         series = pd.Series(np.arange(2000) + 1.)
         result = pair_analysis(series, series, pilot["cointegration"])
@@ -215,7 +218,8 @@ class CryptoTests(unittest.TestCase):
                         check()
                         reading["crypto_pairs"][f"{tf}_{pair}"] = pair_state(app.tabs[4])
                         if tf == "1D" and pair in (1, 2):
-                            self.assertIn("no calculable", reading["crypto_pairs"][f"{tf}_{pair}"]["state"])
+                            self.assertTrue(any("Historia limitada" in w.value for w in app.tabs[4].warning))
+                        self.assertTrue(any("bloques disponibles" in c.value or "Porcentaje de todos los bloques" in c.value for c in app.tabs[4].caption))
                 # Cobertura de todos los pares, incluyendo los no calculables.
                 reading["crypto_coverage"] = next(table.value.to_dict("records") for table in app.tabs[4].dataframe if "Bloques disponibles" in table.value.columns)
                 app.selectbox(key="cripto_pilot_asset").set_value("HYPE/USDT").run()

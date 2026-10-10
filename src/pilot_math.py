@@ -120,6 +120,16 @@ def crypto_kpis(rows, alignments, ratios, vwaps):
             "furthest_vwap": {"symbol": furthest, **valid[furthest]} if furthest else None}
 
 
+def cointegration_parameters(pilot, y, x, tf, common_bars):
+    params = {**pilot["cointegration"], **pilot.get("cointegration_by_tf", {}).get(tf, {})}
+    size = params.get("block_size", params["primary_window"])
+    available = common_bars // size
+    limited = pilot.get("limited_history", {})
+    if limited.get("asset") in (y, x) and limited.get("minimum_blocks", 4) <= available < params["required_blocks"]:
+        params.update(required_blocks=limited["minimum_blocks"], stable_blocks=limited["minimum_blocks"], provisional=True)
+    return params
+
+
 def pair_coverage(frames, pairs, pilot):
     rows = []
     for pair in pairs:
@@ -132,8 +142,9 @@ def pair_coverage(frames, pairs, pilot):
                 exchanges.append(str(closed.source.iloc[-1]) if len(closed) else None)
             common = pd.concat(values, axis=1, join="inner").dropna()
             common = common[(common > 0).all(axis=1)]
-            size = pilot["cointegration"]["primary_window"]
-            required = pilot["cointegration"]["required_blocks"]
+            params = cointegration_parameters(pilot, pair["y"], pair["x"], tf, len(common))
+            size = params.get("block_size", params["primary_window"])
+            required = params["required_blocks"]
             rows.append({"y": pair["y"], "x": pair["x"], "tf": tf, "bars": len(common),
                          "blocks": len(common) // size, "block_size": size, "required_blocks": required,
                          "enough": len(common) >= size * required, "exchanges": exchanges,

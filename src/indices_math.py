@@ -321,22 +321,57 @@ def _pair_test(logs, diff_lags=1):
 
 
 def pair_analysis(y, x, cfg):
-    """Solo 1D: cinco bloques disjuntos; comparación principal con beta larga fija."""
+    """Bloques disjuntos; estado reciente y cobertura de toda la historia separados."""
     pair = pd.concat([y.rename("y"), x.rename("x")], axis=1, join="inner").dropna().sort_index()
     pair = pair[(pair > 0).all(axis=1)]
     window, blocks = cfg["primary_window"], cfg["required_blocks"]
-    if len(pair) < window * blocks:
-        return {"state": "no calculable", "reason": "Historia insuficiente para evaluar estabilidad", "bars": len(pair), "blocks": len(pair) // window}
+    block_size = cfg.get("block_size", window)
+    available = len(pair) // block_size
+    extra = {}
+    evidence = []
+    if cfg.get("all_block_statistics"):
+        logs = np.log(pair)
+        records = []
+        for i in range(available):
+            end = len(logs) - i * block_size
+            sample = logs.iloc[end-block_size:end]
+            record = {"block": i + 1, "start": str(sample.index[0]), "end": str(sample.index[-1])}
+            try:
+                result = _pair_test(sample, cfg["johansen_diff_lags"])
+                confirmed = result["p_yx"] < cfg["p_threshold"] and result["p_xy"] < cfg["p_threshold"]
+                record.update(result, evaluated=True, confirmed=bool(confirmed))
+                evidence.append(bool(confirmed))
+            except Exception as exc:
+                record.update(evaluated=False, confirmed=None, error=str(exc))
+                evidence.append(None)
+            records.append(record)
+        evaluated = sum(r["evaluated"] for r in records)
+        confirmed = sum(r.get("confirmed") is True for r in records)
+        recent = records[:blocks]
+        extra = {"all_block_statistics": {"available": available, "evaluated": evaluated, "confirmed": confirmed,
+                  "failed": available - evaluated,
+                  "confirmation_pct": confirmed / available * 100 if available and evaluated == available else None,
+                  "records": records},
+                 "recent_block_statistics": {"requested": blocks, "available": len(recent),
+                  "evaluated": sum(r["evaluated"] for r in recent), "confirmed": sum(r.get("confirmed") is True for r in recent)},
+                 "limited_history": bool(cfg.get("provisional"))}
+    if available < blocks:
+        return {"state": "no calculable", "reason": "Historia insuficiente para evaluar estabilidad", "bars": len(pair), "blocks": available, **extra}
     try:
         logs = np.log(pair)
         primary = _pair_test(logs.tail(window), cfg["johansen_diff_lags"])
         contrast = _pair_test(logs.tail(cfg["contrast_window"]), cfg["johansen_diff_lags"])
-        evidence = []
-        for i in range(blocks):
-            end = len(logs) - i * window
-            result = _pair_test(logs.iloc[end-window:end], cfg["johansen_diff_lags"])
-            evidence.append(result["p_yx"] < cfg["p_threshold"] and result["p_xy"] < cfg["p_threshold"])
-        confirms = sum(evidence)
+        if cfg.get("all_block_statistics"):
+            if any(value is None for value in evidence[:blocks]):
+                raise ValueError("Una prueba del tramo reciente no pudo evaluarse; no se asigna un estado fiable.")
+            recent_evidence = evidence[:blocks]
+        else:
+            recent_evidence = []
+            for i in range(blocks):
+                end = len(logs) - i * block_size
+                result = _pair_test(logs.iloc[end-block_size:end], cfg["johansen_diff_lags"])
+                recent_evidence.append(result["p_yx"] < cfg["p_threshold"] and result["p_xy"] < cfg["p_threshold"])
+        confirms = sum(recent_evidence)
         current = primary["p_yx"] < cfg["p_threshold"] and primary["p_xy"] < cfg["p_threshold"]
         agrees = contrast["p_yx"] < cfg["p_threshold"] and contrast["p_xy"] < cfg["p_threshold"]
         if current and agrees and primary["johansen_rank"] == contrast["johansen_rank"] == 1 and confirms >= cfg["stable_blocks"]:
@@ -345,6 +380,8 @@ def pair_analysis(y, x, cfg):
             state = "intermitente"
         else:
             state = "sin relación"
+        if cfg.get("provisional") and state == "estable":
+            state = "Estable (provisional)"
         fit = sm.OLS(logs.y, sm.add_constant(logs.x)).fit()
         alpha, beta = map(float, fit.params.iloc[:2])
         spread = logs.y - beta * logs.x
@@ -360,11 +397,11 @@ def pair_analysis(y, x, cfg):
             sample = logs.iloc[end-window:end]
             rolling.append({"date": sample.index[-1], "p_yx": float(coint(sample.y, sample.x)[1]), "p_xy": float(coint(sample.x, sample.y)[1])})
         return {"state": state, "reason": "Sin relación confirmada en el período analizado" if state == "sin relación" else "",
-                "bars": len(pair), "blocks": len(pair) // window, "confirmed_blocks": int(confirms), "evaluated_blocks": blocks,
+                "bars": len(pair), "blocks": available, "confirmed_blocks": int(confirms), "evaluated_blocks": blocks,
                 "primary": primary, "contrast": contrast, "beta": beta, "alpha": alpha, "spread": spread,
                 "mean_long": float(spread.mean()), "std_long": float(std_long), "mean_short": float(short.mean()),
                 "std_short": float(std_short), "z_short": float((spread.iloc[-1] - short.mean()) / std_short),
                 "z_long": float((spread.iloc[-1] - spread.mean()) / std_long), "rolling": pd.DataFrame(rolling),
-                "start": str(pair.index[0]), "end": str(pair.index[-1])}
+                "start": str(pair.index[0]), "end": str(pair.index[-1]), **extra}
     except Exception as exc:
-        return {"state": "no calculable", "reason": str(exc), "bars": len(pair), "blocks": len(pair) // window}
+        return {"state": "no calculable", "reason": str(exc), "bars": len(pair), "blocks": available, **extra}

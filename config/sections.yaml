@@ -191,12 +191,13 @@ cripto:
   vwap_mode: utc
   cointegration_scales: ["1D", "1h", "4h"]
   cointegration_by_tf:
-    "1h": {rolling_step: 250}
+    "1h": {block_size: 1000, rolling_step: 250}
     "4h": {rolling_step: 250}
+  limited_history: {asset: "SOL/USDT", minimum_blocks: 4}
   notices:
     - "Mercado abierto todos los días y a toda hora. Los fines de semana no reducen la antigüedad: un dato atrasado se marca también sábado o domingo."
     - "VWAP: reinicio confirmado a las 00:00 UTC, con precio típico y volumen del mismo instrumento y la misma exchange. Hyperliquid usa Bybit como fuente preferida; los cambios de exchange se avisan y no se mezclan sus volúmenes."
-  reading_notes: "El conteo de subas corresponde al último cierre diario disponible y no es una cotización en vivo. La alineación excluye escalas atrasadas. ETH/BTC y SOL/BTC comparan cierres diarios comunes; su distancia usa una media de 50 cierres y el percentil compara la distancia por desvío contra sus últimas 250 observaciones válidas. Un ratio creciente indica mejor desempeño de la primera cripto frente a Bitcoin, no dominancia. El VWAP reinicia a las 00:00 UTC y compara precio y volumen de la misma exchange; su mayor separación se mide en la misma sesión y corte común, y no asegura reversión. Los fines de semana son días de mercado. El dólar y VIX son contexto diario con rezago. La estabilidad de cointegración requiere cinco bloques sin solape: los pares con Solana no reciben una regla reducida hasta tu aprobación. La dirección se detecta mejor en subas que en caídas: en caídas conocidas marcó como bajista entre 37% y 56% de las velas."
+  reading_notes: "El conteo de subas corresponde al último cierre diario disponible y no es una cotización en vivo. La alineación excluye escalas atrasadas. ETH/BTC y SOL/BTC comparan cierres diarios comunes; su distancia usa una media de 50 cierres y el percentil compara la distancia por desvío contra sus últimas 250 observaciones válidas. Un ratio creciente indica mejor desempeño de la primera cripto frente a Bitcoin, no dominancia. El VWAP reinicia a las 00:00 UTC y compara precio y volumen de la misma exchange; su mayor separación se mide en la misma sesión y corte común, y no asegura reversión. Los fines de semana son días de mercado. El dólar y VIX son contexto diario con rezago. Cointegración: bloques de 1000 velas en 1h y de 500 en 4h y diario. Se informa la confirmación de todos los bloques y, por separado, los últimos cinco. Solana puede evaluarse desde cuatro bloques únicamente cuando su historia no llega a cinco; su estado más alto es Estable (provisional), con aviso de historia limitada. La dirección se detecta mejor en subas que en caídas: en caídas conocidas marcó como bajista entre 37% y 56% de las velas."
   ratios:
     - {y: "ETH/USDT", x: "BTC/USDT", label: "ETH/BTC", window: 50, percentile_window: 250, chart_sessions: 500}
     - {y: "SOL/USDT", x: "BTC/USDT", label: "SOL/BTC", window: 50, percentile_window: 250, chart_sessions: 500}
@@ -210,3 +211,4 @@ cripto:
     p_threshold: 0.05
     johansen_diff_lags: 1
     rolling_step: 21
+    all_block_statistics: true
