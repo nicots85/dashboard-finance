@@ -732,12 +732,12 @@ def render_historial():
             c1.metric("Más fuerte 20 ruedas", k.get("top_relative_20d") or "—")
             c2.metric("Más alineado", k.get("most_aligned") or "—")
             c3.metric("Más alejado", k.get("most_stretched_1d") or "—")
-        for section_name in ("metales", "cripto"):
+        for section_name in ("metales", "cripto", "equity"):
             stored_section = sections.get(section_name, {})
             ratios = stored_section.get("ratios", [])
             relative = stored_section.get("relative_strength", {})
             with st.expander(f"Indicadores de {section_name.capitalize()} en esa foto"):
-                if not ratios and not relative:
+                if not ratios and not relative and not stored_section.get("sector_performance"):
                     st.info("Esta foto no guardó esos indicadores. No se completan con datos actuales.")
                 for ratio in ratios:
                     st.write(ratio["label"] + " · última sesión común: " + str(ratio.get("last_session") or "sin datos"))
@@ -765,6 +765,17 @@ def render_historial():
                     for symbol, vwap in stored_section["session_vwaps"].items():
                         pct = f"{vwap['distance_pct']:+.2f}%" if vwap.get("distance_pct") is not None else "sin VWAP"
                         st.write(asset_label(symbol) + " · " + vwap["exchange"].title() + " · VWAP " + pct + " · sesión " + vwap["session"] + " · corte " + vwap["common_cutoff"])
+                if stored_section.get("sector_performance"):
+                    k = stored_section["kpis"]
+                    st.write(f"Sectores que subían en esa foto: {k['sector_up']} de {k['sector_total']} · tecnológicas: {k['mega_up']} de {k['mega_total']}.")
+                    for key, title in [("leader", "Líder"), ("laggard", "Rezagado")]:
+                        item = k.get(key)
+                        if item:
+                            st.write(title + ": " + asset_label(item["symbol"]) + f" · {item['relative_pp']:+.2f} puntos frente al S&P 500.")
+                    heat = pd.DataFrame(stored_section["sector_heatmap"])
+                    heat["symbol"] = heat.symbol.map(asset_label)
+                    st.dataframe(heat, hide_index=True, column_config={**{column: st.column_config.Column(help="Separación de la EMA guardada en esa foto, sin recalcular.") for column in heat.columns},
+                                                                      "_index": st.column_config.Column(help="Número de fila guardado.")})
         arg = sections.get("argentina", {}).get("ccl", {})
         if arg.get("median"):
             st.metric("CCL mediano de esa foto", f"${arg['median']:,.0f}")
@@ -890,7 +901,7 @@ def main():
     with tabs[1]:
         render_section_pilot(DB_PATH, render_seccion, section="metales")
     with tabs[2]:
-        render_seccion("equity")
+        render_section_pilot(DB_PATH, render_seccion, section="equity")
     with tabs[3]:
         render_seccion("smallcaps")
     with tabs[4]:

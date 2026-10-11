@@ -1,4 +1,4 @@
-"""Piloto de sección guiado por config/sections.yaml (Índices, Metales y Cripto)."""
+"""Piloto guiado por config/sections.yaml: Índices, Metales, Cripto y Equity."""
 import json
 import subprocess
 import sys
@@ -16,6 +16,7 @@ from src.indices_math import (prepare_bars, freshness, alignment, daily_means, r
     session_vwap, select_range, aggregate_4h, aggregate_regular_hours, unexpected_gaps, pair_analysis, ratio_analysis, ALIGNMENT_LEGEND, schedule)
 from src.presentation import asset_label, pair_label, help_text, TF_LABELS, section_terms, rich_text, definition
 from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage, cointegration_parameters
+from src.equity_math import regular_stock_bars, equity_indicators
 
 TFS = ["1m", "5m", "15m", "1h", "4h", "1D"]
 FUTURES_NOTICE = "Los futuros continuos de Yahoo pueden tener saltos en los cambios de contrato; no se verificó cómo los ajusta."
@@ -26,6 +27,8 @@ def pilot_asset_label(pilot, symbol, timeframe=None, exchange=None):
     if pilot.get("exchanges"):
         exchange = exchange or pilot["exchanges"].get(symbol)
         label += " · " + (exchange.title() if exchange else "Exchange sin identificar")
+    if pilot.get("regular_session") and timeframe == "4h":
+        label += " · 4h de sesión"
     return label
 
 
@@ -58,6 +61,7 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
     now = pd.to_datetime(_minute, utc=True)
     daily, directions, frames, qualities = {}, {}, {}, []
     crypto = pilot.get("vwap_mode") == "utc"
+    regular = pilot.get("regular_session", False)
     exchanges = {}
     rows = []
     for symbol in assets[section]["activos"]:
@@ -72,11 +76,14 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
                     "Fuente": "Yahoo", "Último dato UTC": stored[1] or "—", "Calidad": pilot["asset_notices"][symbol],
                     "Velas guardadas": stored[0], "Dirección": "sin datos"})
                 continue
-            raw = raw_data(db_path, symbol, tf, signature)
+            raw = raw_data(db_path, symbol, "5m" if regular and tf == "1h" else tf, signature)
             if crypto:
                 raw, info = select_exchange(raw, pilot["exchanges"][symbol])
                 exchanges[(symbol, tf)] = info
-            if tf == "4h":
+            if regular:
+                bars = regular_stock_bars(raw, symbol, tf, now)
+                effective_calendar = "NYSE"
+            elif tf == "4h":
                 bars = prepare_stored(raw, symbol, now, calendar)
                 effective_calendar = "CME_Equity" if policy(symbol) and policy(symbol)["method"] == "future_utc" else calendar
             else:
@@ -119,6 +126,9 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
             frows = frows[pd.to_datetime(frows.timestamp, utc=True) <= now]
             dates = pd.to_datetime(frows.timestamp, utc=True).dt.strftime("%Y-%m-%d")
             benchmark = pd.Series(frows.value.to_numpy(dtype=float), index=dates.to_numpy()).groupby(level=0).last()
+        elif regular:
+            bars = prepare_bars(raw_data(db_path, benchmark_symbol, "1D", signature), benchmark_symbol, "1D", pilot["calendars"].get(benchmark_symbol, "NYSE"), now)
+            benchmark = daily_means(bars).set_index("session").close
     perf = relative_performance(series, benchmark, pilot["relative_strength_sessions"])
     between = common_performance(series, pilot["relative_strength_sessions"]) if pilot.get("compare_all_assets") else None
     ratios = {spec["label"]: ratio_reading(daily, spec)[0] for spec in pilot.get("ratios", [])}
@@ -128,6 +138,7 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
             "performance_between": between,
             "ratios": ratios, "session_vwaps": vwaps, "exchanges": exchanges,
             "pair_coverage": pair_coverage(frames, pairs[section], pilot) if crypto else [],
+            "equity": equity_indicators(rows, daily, frames, benchmark, pilot) if regular else None,
             "calculated_at": pd.Timestamp.now(tz="UTC").isoformat()}
 
 
@@ -208,6 +219,43 @@ def render_crypto_summary(pilot, model):
         st.caption(f"VWAP comparado de la sesión {v['session']} · corte común {v['common_cutoff']} · base {TF_LABELS[v['base_tf']]} · reinicio 00:00 UTC. Describe los últimos datos disponibles, no garantiza una reversión.")
 
 
+def render_equity_summary(pilot, model, section):
+    reading = model["equity"]
+    k = reading["kpis"]
+    columns = st.columns(5)
+    with columns[0]:
+        metric("Sectores que suben", f"{k['sector_up']} de {k['sector_total']}",
+               "Dirección de los últimos cierres diarios de los once ETF sectoriales. Los cierres atrasados se avisan; no es cotización en vivo.")
+    for column, field, title in [(columns[1], "leader", "Sector líder frente al S&P 500"), (columns[2], "laggard", "Sector rezagado frente al S&P 500")]:
+        with column:
+            row = k[field]
+            metric(title, asset_label(row["symbol"]) if row else "Historia común insuficiente",
+                   "Rendimiento menos rendimiento del S&P 500 sobre las mismas veinte ruedas comunes de todos los sectores y el benchmark; se mide en puntos porcentuales.",
+                   f"{row['relative_pp']:+.2f} puntos" if row else None)
+    with columns[3]:
+        metric("Fortaleza de las siete tecnológicas", f"{k['mega_up']} de {k['mega_total']} suben",
+               "Cuenta las direcciones diarias de Apple, Microsoft, Nvidia, Alphabet, Amazon, Meta y Tesla, por separado de los sectores.")
+    with columns[4]:
+        row = k["stretched"]
+        metric("Mayor separación de la media", asset_label(row["symbol"]) if row else "Sin media válida",
+               "Máxima separación absoluta frente a la EMA de 50 cierres diarios, dividida por el desvío de 50 cierres. No es fuerza relativa ni predicción de reversión.",
+               f"{row['distance_pct']:+.2f}% · {row['distance_std']:+.2f} desvíos" if row else None)
+    if k["start_session"]:
+        st.caption(f"Rendimiento sectorial comparado: {k['start_session']} → {k['last_session']} · {pilot['relative_strength_sessions']} ruedas comunes de los once sectores y el S&P 500.")
+    st.subheader("Mapa de calor sectorial: distancia a la EMA de 50 cierres")
+    heat = reading["heatmap"]
+    values = heat[TFS].to_numpy(dtype=float)
+    finite = np.abs(values[np.isfinite(values)])
+    scale = max(1., float(finite.max())) if len(finite) else 1.
+    fig = go.Figure(go.Heatmap(z=values, x=[TF_LABELS[tf] for tf in TFS], y=[asset_label(s) for s in heat.symbol],
+                             colorscale="RdYlGn", zmin=-scale, zmax=scale, zmid=0,
+                             colorbar={"title": "% vs EMA"},
+                             hovertemplate="%{y}<br>%{x}: %{z:+.2f}% frente a su EMA de 50 cierres<extra></extra>"))
+    fig.update_layout(height=420, plot_bgcolor="#ededed", yaxis={"autorange": "reversed"})
+    st.plotly_chart(fig, width="stretch", key=widget_key(section, "pilot_sector_heatmap"))
+    st.caption("Verde: precio por encima de su media; rojo: por debajo; gris: historia insuficiente. Sectores ordenados por distancia diaria, de mayor a menor. La intensidad es separación, no una orden de compra o venta.")
+
+
 def render_ratios(pilot, daily, section):
     for spec in pilot.get("ratios", []):
         y, x = spec["y"], spec["x"]
@@ -247,6 +295,7 @@ def render_detail(db_path, signature, pilot, ops, frames, section="indices"):
     c1, c2, c3 = st.columns(3)
     selected_tf = st.session_state.get(pk("pilot_tf"))
     crypto = pilot.get("vwap_mode") == "utc"
+    regular = pilot.get("regular_session", False)
     symbol = c1.selectbox("Activo", symbols, format_func=lambda s: pilot_asset_label(pilot, s, selected_tf), key=pk("pilot_asset"), help=help_text("activo"))
     available_tfs = pilot.get("asset_timeframes", {}).get(symbol, TFS)
     tf = c2.selectbox("Temporalidad", available_tfs, index=available_tfs.index(pilot.get("default_timeframe", "1D")), format_func=lambda t: TF_LABELS[t], key=pk("pilot_tf"), help=help_text("temporalidad"))
@@ -266,10 +315,12 @@ def render_detail(db_path, signature, pilot, ops, frames, section="indices"):
         start = pd.to_datetime(chosen[0], utc=True)
         end = pd.to_datetime(chosen[1], utc=True) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
     reference = symbol
-    mode = "utc" if crypto else ops["cme_vwap_session"]["default"] or "complete"
+    mode = "utc" if crypto else "regular" if regular else ops["cme_vwap_session"]["default"] or "complete"
     if crypto:
         st.caption("VWAP de cripto: reinicio a las 00:00 UTC · mercado 24/7 · precio y volumen de la misma exchange.")
-    if tf != "1D" and not crypto:
+    if regular:
+        st.caption("Sesión regular: 09:30–16:00 Nueva York, sin premercado; ajustada a feriados, cierres anticipados y cambio de hora. VWAP del mismo ETF o acción.")
+    if tf != "1D" and not crypto and not regular:
         options = pilot["references"][symbol] + ([] if tf == "4h" and policy(symbol) and policy(symbol)["method"] == "future_utc" else [symbol])
         c1, c2 = st.columns(2)
         reference = c1.selectbox("Instrumento del gráfico", options, format_func=asset_label, key=pk("pilot_reference_" + symbol),
@@ -286,13 +337,26 @@ def render_detail(db_path, signature, pilot, ops, frames, section="indices"):
     if reference == "NQ=F":
         st.info("Comparación de " + asset_label(reference) + " con tu CFD USTEC: pendiente de tu validación con el bróker.")
     cal = pilot["calendars"][reference]
-    can_vwap = (reference in pilot["names"] or reference == "IWM") and reference not in pilot.get("vwap_disabled", [])
+    can_vwap = (reference in pilot["names"] or reference == "IWM" or reference in pilot.get("vwap_instruments", [])) and reference not in pilot.get("vwap_disabled", [])
     base_tf = "1h" if tf == "4h" else tf
     if tf == "1h" and mode == "regular" and reference.endswith("=F"):
         base_tf = "5m"
     data = None
     chart_label = asset_label(reference)
-    if crypto:
+    if regular:
+        base_tf = "5m" if tf == "1h" else tf
+        data = regular_stock_bars(raw_data(db_path, reference, base_tf, signature), reference, tf, now)
+        chart_label = pilot_asset_label(pilot, reference, tf)
+        if tf == "4h":
+            with DatabaseManager(db_path)._get_connection() as conn:
+                descriptor = series_descriptor(reference, conn)
+            st.caption(chart_label + " · " + descriptor["label"])
+            enough, required = sufficient_history(data[data.closed], configs(section)[1])
+            if not enough:
+                st.warning(f"Historia insuficiente en 4h de sesión: se requieren {required} velas.")
+        if tf == "1h":
+            st.caption("Horas de sesión reconstruidas desde 09:30 NY usando velas de cinco minutos; el último bloque puede ser parcial.")
+    elif crypto:
         raw, source_info = select_exchange(raw_data(db_path, reference, tf, signature), pilot["exchanges"][reference])
         data = prepare_stored(raw, reference, now, cal) if tf == "4h" else prepare_bars(raw, reference, tf, cal, now)
         chart_label = pilot_asset_label(pilot, reference, tf, source_info["exchange"])
@@ -362,7 +426,7 @@ def render_detail(db_path, signature, pilot, ops, frames, section="indices"):
             raw = raw_data(db_path, reference, candidate, signature)
             if crypto:
                 raw, _ = select_exchange(raw, pilot["exchanges"][reference], requested=source_info["exchange"])
-            prepared = prepare_bars(raw, reference, candidate, cal, now, regular=mode == "regular" and reference.endswith("=F"))
+            prepared = prepare_bars(raw, reference, candidate, cal, now, regular=regular or (mode == "regular" and reference.endswith("=F")))
             if len(prepared) and prepared.timestamp.min() <= visible.timestamp.min() - pd.Timedelta(days=1):
                 source, chosen_tf = prepared, candidate
                 break
@@ -371,7 +435,7 @@ def render_detail(db_path, signature, pilot, ops, frames, section="indices"):
             if crypto:
                 raw, _ = select_exchange(raw, pilot["exchanges"][reference], requested=source_info["exchange"])
             source = prepare_bars(raw, reference, base_tf, cal, now,
-                regular=mode == "regular" and reference.endswith("=F"))
+                regular=regular or (mode == "regular" and reference.endswith("=F")))
             chosen_tf = base_tf
             partial.append("La fuente no cubre el comienzo completo de todas las sesiones del rango.")
         v = session_vwap(source)
@@ -520,6 +584,8 @@ def render_cointegration(db_path, signature, settings_json, minute, pilot, pairs
             if result.get("all_block_statistics") is not None:
                 st.json({"todos_los_bloques": result["all_block_statistics"], "tramo_reciente": result["recent_block_statistics"]})
         academic = "**Contexto académico — no interviene en los números:** Engle y Granger (1987) desarrollaron pruebas para estudiar un equilibrio entre series con tendencia; no estudiaron específicamente estos pares de índices. [Referencia verificada](https://doi.org/10.2307/1913236)."
+        if pilot.get("regular_session"):
+            academic = academic.replace("pares de índices", "pares de ETF")
         st.markdown(academic.replace("pares de índices", "pares de criptomonedas") if crypto else academic)
 
 
@@ -554,6 +620,7 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
             st.error(err)
     rows = model["rows"]
     crypto = pilot.get("vwap_mode") == "utc"
+    regular = pilot.get("regular_session", False)
     stale = sum(r["daily_stale"] for r in rows)
     if stale:
         st.warning(f"{stale} {noun} tienen cierres diarios atrasados o no comprobables. Los conteos describen sus últimos datos, no una cotización en vivo.")
@@ -575,6 +642,8 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
             if changed:
                 observed = sorted({source for info in changed for source in info["sources"]})
                 st.warning("Cambio de fuente para " + asset_label(symbol) + ": " + ", ".join(observed) + "; preferida " + pilot["exchanges"][symbol] + ". Cada lectura y VWAP usa una sola exchange; revisá Fuentes y calidad.")
+    elif regular:
+        render_equity_summary(pilot, model, section)
     else:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -665,9 +734,11 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
     with st.expander("Fuentes, fechas, parámetros y calidad de los datos"):
         st.dataframe(model["quality"], hide_index=True, width="stretch", column_config={**{c: st.column_config.Column(help="Trazabilidad de la lectura del piloto: calendario, fuente y fecha usada.") for c in model["quality"].columns}, "_index": st.column_config.Column(help="Número de fila.")})
         diagnostic = {key: pilot[key] for key in pilot.get("diagnostic_fields", pilot) if key in pilot}
-        st.json({"parámetros diarios": calc["regime"], "lectura piloto": diagnostic, "horario 4h": ops["platform_4h"], "sesión": ops["cme_vwap_session"]})
+        hours = {"timezone": "America/New_York", "starts": ["09:30", "13:30"], "label": "4h de sesión"} if regular else ops["platform_4h"]
+        session = {"mode": "regular", "opening": "09:30", "close": "16:00", "calendar": "NYSE"} if regular else ops["cme_vwap_session"]
+        st.json({"parámetros diarios": calc["regime"], "lectura piloto": diagnostic, "horario 4h": hours, "sesión": session})
         ref_rows = []
-        for reference in pilot["names"]:
+        for reference in (assets[section]["activos"] if regular else pilot["names"]):
             for tf in TFS:
                 df = raw_data(db_path, reference, tf, signature)
                 source = model["exchanges"].get((reference, tf), {}).get("exchange") if crypto else None

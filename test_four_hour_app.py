@@ -27,6 +27,7 @@ class FourHourAppTests(unittest.TestCase):
                     "pilot_tf": "4h", "pilot_reference_^NDX": "NQ=F",
                     "tf_indices": "4h", "tf_metales": "4h", "tf_cripto": "4h",
                     "tf_equity": "4h", "sym_equity": "AAPL",
+                    "equity_pilot_tf": "4h", "equity_pilot_asset": "AAPL",
                     "tf_smallcaps": "4h", "sym_smallcaps": "IWM",
                     "tf_argentina": "4h", "sym_argentina": "GGAL",
                     "hist_view": "Elegir foto", "hist_photo": photo_id,

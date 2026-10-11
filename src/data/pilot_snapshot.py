@@ -5,19 +5,21 @@ from src.indices_math import prepare_bars, daily_means, relative_performance, fr
 from src.calc.regime import get_latest_market_regime
 from src.data.four_hour import prepare_stored, market_results
 from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage
+from src.equity_math import regular_stock_bars, equity_indicators
 
 
 def section_indicators(conn, section, assets, pilot, now, calc_config=None, pairs=None):
     daily, frames, exchange_sources = {}, {}, {}
     crypto = pilot.get("vwap_mode") == "utc"
+    regular = pilot.get("regular_session", False)
     for symbol in assets:
-        for tf in (["1m", "5m", "15m", "1h", "4h", "1D"] if crypto else ["1D"]):
+        for tf in (["1m", "5m", "15m", "1h", "4h", "1D"] if crypto or regular else ["1D"]):
             raw = pd.read_sql_query("SELECT * FROM candles WHERE symbol=? AND timeframe=? ORDER BY timestamp",
-                                    conn, params=(symbol, tf))
+                                    conn, params=(symbol, "5m" if regular and tf == "1h" else tf))
             if crypto:
                 raw, info = select_exchange(raw, pilot["exchanges"][symbol])
                 exchange_sources.setdefault(symbol, {})[tf] = info
-            bars = prepare_stored(raw, symbol, now, pilot["calendars"][symbol]) if tf == "4h" else prepare_bars(raw, symbol, tf, pilot["calendars"][symbol], now)
+            bars = regular_stock_bars(raw, symbol, tf, now) if regular else prepare_stored(raw, symbol, now, pilot["calendars"][symbol]) if tf == "4h" else prepare_bars(raw, symbol, tf, pilot["calendars"][symbol], now)
             frames[(symbol, tf)] = bars
         bars = frames[(symbol, "1D")]
         if pilot.get("deduplicate_daily_sessions"):
@@ -67,4 +69,19 @@ def section_indicators(conn, section, assets, pilot, now, calc_config=None, pair
         result.update({"kpis": crypto_kpis(rows, directions, {r["label"]: r for r in ratios}, vwaps),
                        "session_vwaps": vwaps, "exchange_sources": exchange_sources,
                        "pair_coverage": pair_coverage(frames, pairs, pilot)})
+    if regular:
+        raw = pd.read_sql_query("SELECT * FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp", conn, params=(pilot["benchmark"],))
+        bars = prepare_bars(raw, pilot["benchmark"], "1D", "NYSE", now)
+        benchmark = daily_means(bars).set_index("session").close
+        rows = []
+        for symbol, data in daily.items():
+            reading = get_latest_market_regime(data, calc_config["regime"])
+            last = data.iloc[-1] if len(data) else None
+            rows.append({"symbol": symbol, "direction": reading["direction"],
+                         "distance_pct": float(last.distance_pct) if last is not None and pd.notna(last.distance_pct) else None,
+                         "distance_std": float(last.distance_std) if last is not None and pd.notna(last.distance_std) else None})
+        equity = equity_indicators(rows, daily, frames, benchmark, pilot)
+        result.update({"kpis": equity["kpis"], "sector_performance": equity["sector_performance"].astype(object).where(pd.notna(equity["sector_performance"]), None).to_dict("records"),
+                       "sector_heatmap": equity["heatmap"].astype(object).where(pd.notna(equity["heatmap"]), None).to_dict("records"),
+                       "regular_session": {"timezone": "America/New_York", "opening": "09:30", "close": "16:00", "include_premarket": False}})
     return result
