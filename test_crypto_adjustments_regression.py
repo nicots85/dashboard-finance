@@ -10,6 +10,7 @@ import unittest
 from src.data.backup import ROOT, snapshot_database
 from src.data.db_manager import DEFAULT_DB_PATH
 from test_regression import compare
+from historical_regression_fixture import historical_snapshot
 
 
 class CryptoAdjustmentRegression(unittest.TestCase):
@@ -17,15 +18,17 @@ class CryptoAdjustmentRegression(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             tmp = Path(temporary)
             db = tmp / "same.db"
-            snapshot_database(DEFAULT_DB_PATH, str(db))
+            historical_snapshot(DEFAULT_DB_PATH, str(db))
             old = tmp / "approved_crypto"
             subprocess.run(["git", "worktree", "add", "--detach", str(old), "5ea8fa6"], cwd=ROOT,
                            check=True, capture_output=True)
+            approved = tmp / "approved_equity"
+            subprocess.run(["git", "worktree", "add", "--detach", str(approved), "946413f"], cwd=ROOT, check=True, capture_output=True)
             try:
                 env = dict(os.environ, FINANCE_DB_PATH=str(db), OPENBLAS_NUM_THREADS="1",
                            OMP_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1")
                 dumps = {}
-                for name, repo in (("before", old), ("after", ROOT)):
+                for name, repo in (("before", old), ("approved", approved)):
                     output = tmp / f"{name}.json"
                     result = subprocess.run([sys.executable, "-B", str(ROOT / "_group4_dump.py"), str(repo), str(output)],
                                             cwd=repo, env=env, capture_output=True, text=True, timeout=3600)
@@ -34,9 +37,9 @@ class CryptoAdjustmentRegression(unittest.TestCase):
                 reports = {}
                 for section in ("indices", "metales", "cripto"):
                     a = {k: v for k, v in dumps["before"]["readings"].items() if k.endswith("/" + section)}
-                    b = {k: v for k, v in dumps["after"]["readings"].items() if k.endswith("/" + section)}
+                    b = {k: v for k, v in dumps["approved"]["readings"].items() if k.endswith("/" + section)}
                     reports[section] = compare(a, b)
-                reports["cripto_fuera_de_ajustes"] = compare(dumps["before"]["unaffected_crypto"], dumps["after"]["unaffected_crypto"])
+                reports["cripto_fuera_de_ajustes"] = compare(dumps["before"]["unaffected_crypto"], dumps["approved"]["unaffected_crypto"])
                 for name, report in reports.items():
                     print(f"\n{name}: {report['elements_compared']} elementos comparados; {report['differences']} diferencias")
                 target = os.environ.get("CRYPTO_ADJUSTMENTS_OUTPUT_DIR")
@@ -52,6 +55,7 @@ class CryptoAdjustmentRegression(unittest.TestCase):
             finally:
                 subprocess.run(["git", "worktree", "remove", "--force", str(old)], cwd=ROOT,
                                check=True, capture_output=True)
+                subprocess.run(["git", "worktree", "remove", "--force", str(approved)], cwd=ROOT, check=True, capture_output=True)
 
 
 if __name__ == "__main__":

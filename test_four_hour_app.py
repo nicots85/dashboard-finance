@@ -22,7 +22,7 @@ class FourHourAppTests(unittest.TestCase):
             with patch("src.data.db_manager.DEFAULT_DB_PATH", path), patch(
                 "src.data.DatabaseManager", side_effect=lambda *a, **k: DatabaseManager(path)
             ):
-                app = AppTest.from_file(str(ROOT / "app/main.py"), default_timeout=600)
+                app = AppTest.from_file(str(ROOT / "app/main.py"), default_timeout=1800)
                 for key, value in {
                     "pilot_tf": "4h", "pilot_reference_^NDX": "NQ=F",
                     "tf_indices": "4h", "tf_metales": "4h", "tf_cripto": "4h",

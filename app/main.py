@@ -694,6 +694,7 @@ def render_historial():
         photo = get_photo(pid, DB_PATH)
         st.caption("Serie usada en esa foto: " + photo["four_hour_label"])
         st.caption("Definición de dirección: " + photo.get("direction_definition_label", "definición antigua"))
+        st.caption("Regla de cointegración de esa foto: " + photo.get("cointegration_definition_label", "Regla anterior: sin filtro binomial de azar"))
         with st.expander("Versiones 4h de esa foto"):
             if photo["four_hour_label"] == "4h antigua":
                 st.write("4h antigua. La foto no se modifica ni se recalcula con la serie nueva.")
@@ -732,12 +733,12 @@ def render_historial():
             c1.metric("Más fuerte 20 ruedas", k.get("top_relative_20d") or "—")
             c2.metric("Más alineado", k.get("most_aligned") or "—")
             c3.metric("Más alejado", k.get("most_stretched_1d") or "—")
-        for section_name in ("metales", "cripto", "equity"):
+        for section_name in ("indices", "metales", "cripto", "equity"):
             stored_section = sections.get(section_name, {})
             ratios = stored_section.get("ratios", [])
             relative = stored_section.get("relative_strength", {})
             with st.expander(f"Indicadores de {section_name.capitalize()} en esa foto"):
-                if not ratios and not relative and not stored_section.get("sector_performance"):
+                if not ratios and not relative and not stored_section.get("sector_performance") and not stored_section.get("pilot_cointegration"):
                     st.info("Esta foto no guardó esos indicadores. No se completan con datos actuales.")
                 for ratio in ratios:
                     st.write(ratio["label"] + " · última sesión común: " + str(ratio.get("last_session") or "sin datos"))
@@ -776,6 +777,11 @@ def render_historial():
                     heat["symbol"] = heat.symbol.map(asset_label)
                     st.dataframe(heat, hide_index=True, column_config={**{column: st.column_config.Column(help="Separación de la EMA guardada en esa foto, sin recalcular.") for column in heat.columns},
                                                                       "_index": st.column_config.Column(help="Número de fila guardado.")})
+                for pair in stored_section.get("pilot_cointegration", []):
+                    st.write(pair_label(pair["y"], pair["x"]) + " · " + TF_LABELS[pair["tf"]] + " · " + pair["state"])
+                    evidence = pair.get("binomial_evidence")
+                    if evidence:
+                        st.caption(f"Guardado en esa foto: {evidence['confirmed']} confirmados / {evidence['evaluated']} evaluados · esperables por azar {evidence['expected_by_chance']:.2f} · mínimo {evidence['minimum_confirmed']} · {evidence['conclusion']}.")
         arg = sections.get("argentina", {}).get("ccl", {})
         if arg.get("median"):
             st.metric("CCL mediano de esa foto", f"${arg['median']:,.0f}")

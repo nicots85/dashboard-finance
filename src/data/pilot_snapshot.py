@@ -1,11 +1,38 @@
 """Indicadores nuevos de sección: misma fórmula que la pantalla, sin Streamlit."""
 import pandas as pd
 
-from src.indices_math import prepare_bars, daily_means, relative_performance, freshness, alignment
+from src.indices_math import prepare_bars, daily_means, relative_performance, freshness, alignment, pair_analysis
 from src.calc.regime import get_latest_market_regime
 from src.data.four_hour import prepare_stored, market_results
-from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage
+from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage, cointegration_parameters
 from src.equity_math import regular_stock_bars, equity_indicators
+
+
+def pair_indicators(conn, pilot, pairs, now, frames=None):
+    frames = {} if frames is None else frames
+    readings = []
+    crypto = pilot.get("vwap_mode") == "utc"
+    for pair in pairs:
+        for tf in (pilot["cointegration_scales"] if crypto else ["1D"]):
+            values = []
+            for symbol in (pair["y"], pair["x"]):
+                if (symbol, tf) not in frames:
+                    raw = pd.read_sql_query("SELECT * FROM candles WHERE symbol=? AND timeframe=? ORDER BY timestamp", conn, params=(symbol, tf))
+                    if crypto:
+                        raw, _ = select_exchange(raw, pilot["exchanges"][symbol])
+                    frames[(symbol, tf)] = prepare_stored(raw, symbol, now, pilot["calendars"][symbol]) if tf == "4h" else prepare_bars(raw, symbol, tf, pilot["calendars"][symbol], now)
+                bars = frames[(symbol, tf)]
+                closed = bars[bars.closed]
+                if tf == "1D" and pilot.get("deduplicate_daily_sessions"):
+                    closed = closed.drop_duplicates("session", keep="last")
+                values.append(closed.set_index("session" if tf == "1D" else "timestamp").close)
+            common = pd.concat([v.rename(str(i)) for i, v in enumerate(values)], axis=1, join="inner").dropna()
+            common = common[(common > 0).all(axis=1)]
+            params = {**cointegration_parameters(pilot, pair["y"], pair["x"], tf, len(common)), "include_rolling": False}
+            result = pair_analysis(*values, params)
+            readings.append({"y": pair["y"], "x": pair["x"], "tf": tf,
+                             **{key: value for key, value in result.items() if key not in ("spread", "rolling")}})
+    return readings
 
 
 def section_indicators(conn, section, assets, pilot, now, calc_config=None, pairs=None):
@@ -84,4 +111,6 @@ def section_indicators(conn, section, assets, pilot, now, calc_config=None, pair
         result.update({"kpis": equity["kpis"], "sector_performance": equity["sector_performance"].astype(object).where(pd.notna(equity["sector_performance"]), None).to_dict("records"),
                        "sector_heatmap": equity["heatmap"].astype(object).where(pd.notna(equity["heatmap"]), None).to_dict("records"),
                        "regular_session": {"timezone": "America/New_York", "opening": "09:30", "close": "16:00", "include_premarket": False}})
+    if pilot["cointegration"].get("binomial_gate"):
+        result["pilot_cointegration"] = pair_indicators(conn, pilot, pairs, now, frames)
     return result

@@ -27,6 +27,9 @@ class BlockStatisticsTests(unittest.TestCase):
         pilot = yaml.safe_load((ROOT / "config/sections.yaml").read_text())["cripto"]
         pilot["cointegration"] = {**pilot["cointegration"], "primary_window": 50, "contrast_window": 100,
                                   "short_spread_window": 25, "rolling_step": 50}
+        # Esta suite aísla estadísticas y criterio reciente; la significación
+        # binomial se comprueba independientemente en test_binomial.py.
+        pilot["cointegration"].pop("binomial_gate", None)
         return pilot
 
     def test_all_blocks_percent_does_not_replace_recent_state(self):

@@ -1,4 +1,4 @@
-"""Regresión AppTest real: 63c8401 vs 26e1a77, y 63c8401 vs código actual.
+"""Regresión histórica: 63c8401 vs 26e1a77, y contra la versión aprobada 946413f.
 
 Todas las versiones usan la MISMA copia consistente de finance.db. Los dos
 commits históricos se ejecutan en git worktrees aislados. Se comparan tablas,
@@ -17,7 +17,7 @@ import sys
 import tempfile
 import unittest
 
-from src.data.backup import snapshot_database
+from historical_regression_fixture import historical_snapshot
 from src.data.db_manager import DEFAULT_DB_PATH
 
 ROOT = Path(__file__).resolve().parent
@@ -37,6 +37,7 @@ def compare(old, new):
                 differences.append({"state": state, "operation": kind,
                                     "old": a[i:end_i], "new": b[j:end_j]})
     return {"elements_compared": compared,
+            "state_counts": {state: {"old": len(old.get(state, [])), "new": len(new.get(state, []))} for state in sorted(set(old) | set(new))},
             "differences": sum(max(len(d["old"]), len(d["new"])) for d in differences),
             "details": differences}
 
@@ -46,11 +47,11 @@ class PilotRegression(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             tmp = Path(temporary)
             db = tmp / "finance.db"
-            snapshot_database(DEFAULT_DB_PATH, str(db))
+            historical_snapshot(DEFAULT_DB_PATH, str(db))
             worktrees = []
             try:
-                repos = {"current": ROOT}
-                for name, commit in [("old", "63c8401"), ("refactor", "26e1a77")]:
+                repos = {}
+                for name, commit in [("old", "63c8401"), ("refactor", "26e1a77"), ("approved", "946413f")]:
                     repo = tmp / name
                     subprocess.run(["git", "worktree", "add", "--detach", str(repo), commit],
                                    cwd=ROOT, check=True, capture_output=True, text=True)
@@ -74,7 +75,7 @@ class PilotRegression(unittest.TestCase):
                 dumps = {name: dump(name) for name in repos}
                 original_old = {key: dumps["old"][key] for key in dumps["refactor"]}
                 report = {"63c8401_vs_26e1a77": compare(original_old, dumps["refactor"]),
-                          "63c8401_vs_current": compare(dumps["old"], dumps["current"])}
+                          "63c8401_vs_approved946413f": compare(dumps["old"], dumps["approved"])}
                 self.assertGreater(report["63c8401_vs_26e1a77"]["differences"], 0,
                                    "La prueba debe detectar las regresiones reales del primer refactor")
                 for name, result in report.items():
@@ -88,7 +89,7 @@ class PilotRegression(unittest.TestCase):
                     for name in dumps:
                         shutil.copyfile(tmp / f"{name}.json", folder / f"{name}.json")
                     (folder / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-                self.assertEqual(report["63c8401_vs_current"]["differences"], 0,
+                self.assertEqual(report["63c8401_vs_approved946413f"]["differences"], 0,
                                  "Hay diferencias reales de Índices: consultar report.json")
             finally:
                 for repo in worktrees:

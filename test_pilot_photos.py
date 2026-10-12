@@ -33,6 +33,7 @@ class PilotPhotoTests(unittest.TestCase):
             photo = get_photo(new_id, db)
             self.assertEqual(photo["content"]["schema_version"], SCHEMA_VERSION)
             self.assertIn("Alt 3", photo["direction_definition_label"])
+            self.assertIn("binomial", photo["cointegration_definition_label"])
             metals = photo["content"]["sections"]["metales"]
             ratio = metals["ratios"][0]
             for field in ("ratio", "mean", "distance_pct", "distance_std", "window", "last_session"):
@@ -49,12 +50,16 @@ class PilotPhotoTests(unittest.TestCase):
             with sqlite3.connect(db) as conn:
                 content = photo["content"]
                 content["schema_version"] = 5
+                content.pop("cointegration_definition", None)
+                for item in content["sections"].values():
+                    item.pop("pilot_cointegration", None)
                 for section in ("metales", "cripto"):
                     for key in ("ratios", "relative_strength", "kpis", "pilot_indicators_calculated_at", "session_vwaps", "exchange_sources", "pair_coverage"):
                         content["sections"][section].pop(key, None)
                 original = json.dumps(content, ensure_ascii=False)
                 conn.execute("UPDATE snapshot_photos SET sections_json=? WHERE id=?", (original, new_id))
             old = get_photo(new_id, db)
+            self.assertIn("Regla anterior", old["cointegration_definition_label"])
             self.assertNotIn("ratios", old["content"]["sections"]["metales"])
             with sqlite3.connect(db) as conn:
                 self.assertEqual(conn.execute("SELECT sections_json FROM snapshot_photos WHERE id=?", (new_id,)).fetchone()[0], original)

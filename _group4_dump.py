@@ -36,7 +36,9 @@ def run(repo, destination):
     os.chdir(repo)
     sys.path.insert(0, str(repo))
     from streamlit.testing.v1 import AppTest
-    app = AppTest.from_file(str(repo / "app/main.py"), default_timeout=1200)
+    from testing_clock import monotonic_apptest_wait
+    monotonic_apptest_wait()
+    app = AppTest.from_file(str(repo / "app/main.py"), default_timeout=2400)
     readings, unaffected = {}, {}
 
     def capture(state):

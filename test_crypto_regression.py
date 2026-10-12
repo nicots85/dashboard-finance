@@ -15,6 +15,7 @@ import unittest
 from src.data.backup import ROOT, snapshot_database
 from src.data.db_manager import DEFAULT_DB_PATH
 from test_regression import compare
+from historical_regression_fixture import historical_snapshot
 
 BASELINE = "9014ede"
 
@@ -24,15 +25,17 @@ class CryptoRegression(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
             db = folder / "same.db"
-            snapshot_database(DEFAULT_DB_PATH, str(db))
+            historical_snapshot(DEFAULT_DB_PATH, str(db))
             old = folder / "before_crypto"
             subprocess.run(["git", "worktree", "add", "--detach", str(old), BASELINE], cwd=ROOT,
                            check=True, capture_output=True)
+            approved = folder / "approved_equity"
+            subprocess.run(["git", "worktree", "add", "--detach", str(approved), "946413f"], cwd=ROOT, check=True, capture_output=True)
             try:
                 env = dict(os.environ, FINANCE_DB_PATH=str(db), OPENBLAS_NUM_THREADS="1",
                            OMP_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1")
                 dumps = {}
-                for name, repo in [("before", old), ("after", ROOT)]:
+                for name, repo in [("before", old), ("approved", approved)]:
                     output = folder / f"{name}.json"
                     result = subprocess.run([sys.executable, "-B", str(ROOT / "_step3_dump.py"), str(repo), str(output)],
                                             cwd=repo, env=env, capture_output=True, text=True, timeout=2700)
@@ -41,7 +44,7 @@ class CryptoRegression(unittest.TestCase):
                 reports = {}
                 for section in ("indices", "metales"):
                     before = {key: value for key, value in dumps["before"].items() if key.endswith("/" + section)}
-                    after = {key: value for key, value in dumps["after"].items() if key.endswith("/" + section)}
+                    after = {key: value for key, value in dumps["approved"].items() if key.endswith("/" + section)}
                     reports[section] = compare(before, after)
                     report = reports[section]
                     print(f"\n{section}: {report['elements_compared']} elementos comparados; {report['differences']} diferencias")
@@ -57,6 +60,7 @@ class CryptoRegression(unittest.TestCase):
             finally:
                 subprocess.run(["git", "worktree", "remove", "--force", str(old)], cwd=ROOT,
                                check=True, capture_output=True)
+                subprocess.run(["git", "worktree", "remove", "--force", str(approved)], cwd=ROOT, check=True, capture_output=True)
 
 
 if __name__ == "__main__":

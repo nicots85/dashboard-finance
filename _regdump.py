@@ -88,6 +88,8 @@ def run(repo, output, original=False):
     os.chdir(repo)
     sys.path.insert(0, str(repo))
     from streamlit.testing.v1 import AppTest
+    from testing_clock import monotonic_apptest_wait
+    monotonic_apptest_wait()
     app = AppTest.from_file(str(repo / "app/main.py"), default_timeout=1200)
     snapshots = {}
 

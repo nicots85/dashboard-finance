@@ -65,6 +65,8 @@ indices:
     p_threshold: 0.05
     johansen_diff_lags: 1
     rolling_step: 21
+    all_block_statistics: true
+    binomial_gate: {null_probability: 0.05, alpha: 0.05}
   cfdfuture_comparison:
     status: pending
     label: "Comparación de NQ=F frente al CFD USTEC: pendiente de tu validación con el bróker."
@@ -133,6 +135,8 @@ metales:
     p_threshold: 0.05
     johansen_diff_lags: 1
     rolling_step: 21
+    all_block_statistics: true
+    binomial_gate: {null_probability: 0.05, alpha: 0.05}
 cripto:
   enabled: true
   names:
@@ -212,6 +216,7 @@ cripto:
     johansen_diff_lags: 1
     rolling_step: 21
     all_block_statistics: true
+    binomial_gate: {null_probability: 0.05, alpha: 0.05}
 equity:
   enabled: true
   label: "Equity"
@@ -293,6 +298,7 @@ equity:
     johansen_diff_lags: 1
     rolling_step: 21
     all_block_statistics: true
+    binomial_gate: {null_probability: 0.05, alpha: 0.05}
   notices:
     - "Vista principal de sesión regular de Nueva York, sin premercado. VWAP desde las 09:30 con el precio y volumen del mismo ETF o acción; respeta cierres anticipados y el cambio de hora."
     - "4h de sesión: 09:30–13:30 y 13:30–16:00 de Nueva York. La segunda vela puede ser más corta; no es la 4h del proveedor ni incluye premercado."

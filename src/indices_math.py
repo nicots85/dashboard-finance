@@ -16,17 +16,23 @@ def utc_now(now=None):
     return pd.Timestamp.now(tz="UTC") if now is None else pd.to_datetime(now, utc=True)
 
 
+@lru_cache(maxsize=32)
+def calendar(name):
+    return mcal.get_calendar(name)
+
+
 @lru_cache(maxsize=256)
 def schedule(name, start, end):
-    return mcal.get_calendar(name).schedule(start_date=start, end_date=end)
+    return calendar(name).schedule(start_date=start, end_date=end)
 
 
 def trading_segments(name, start, end, regular=False):
     sch = schedule("NYSE" if regular else name, str(start)[:10], str(end)[:10])
     segments = []
-    for day, row in sch.iterrows():
+    for row in sch.itertuples():
+        day = row.Index
         opening, closing = row.market_open, row.market_close
-        b0, b1 = row.get("break_start"), row.get("break_end")
+        b0, b1 = getattr(row, "break_start", None), getattr(row, "break_end", None)
         if pd.notna(b0) and pd.notna(b1) and b1 > b0:
             segments += [(opening, b0, str(day.date())), (b1, closing, str(day.date()))]
         else:
@@ -35,7 +41,7 @@ def trading_segments(name, start, end, regular=False):
 
 
 def daily_timezone(symbol, calendar_name):
-    return "America/New_York" if symbol.endswith("=F") else str(mcal.get_calendar(calendar_name).tz)
+    return "America/New_York" if symbol.endswith("=F") else str(calendar(calendar_name).tz)
 
 
 def prepare_bars(df, symbol, tf, calendar_name, now=None, regular=False):
@@ -55,7 +61,7 @@ def prepare_bars(df, symbol, tf, calendar_name, now=None, regular=False):
         if symbol.endswith("=F"):
             days = days.map(lambda d: d + pd.Timedelta(days=1) if d.weekday() == 6 else d)
         sch = schedule(calendar_name, str(min(days)), str(max(days)))
-        closes = {d.date(): row.market_close for d, row in sch.iterrows()}
+        closes = dict(zip(sch.index.date, sch.market_close.tolist()))
         out["session"] = days.astype(str)
         out["bar_end"] = pd.to_datetime(days.map(closes), utc=True)
         out = out.dropna(subset=["bar_end", "close"])
@@ -355,6 +361,9 @@ def pair_analysis(y, x, cfg):
                  "recent_block_statistics": {"requested": blocks, "available": len(recent),
                   "evaluated": sum(r["evaluated"] for r in recent), "confirmed": sum(r.get("confirmed") is True for r in recent)},
                  "limited_history": bool(cfg.get("provisional"))}
+        if cfg.get("binomial_gate"):
+            from src.calc.binomial_evidence import binomial_evidence
+            extra["binomial_evidence"] = binomial_evidence(confirmed, evaluated, **cfg["binomial_gate"])
     if available < blocks:
         return {"state": "no calculable", "reason": "Historia insuficiente para evaluar estabilidad", "bars": len(pair), "blocks": available, **extra}
     try:
@@ -363,7 +372,8 @@ def pair_analysis(y, x, cfg):
         contrast = _pair_test(logs.tail(cfg["contrast_window"]), cfg["johansen_diff_lags"])
         if cfg.get("all_block_statistics"):
             if any(value is None for value in evidence[:blocks]):
-                raise ValueError("Una prueba del tramo reciente no pudo evaluarse; no se asigna un estado fiable.")
+                failure = next(r.get("error", "prueba inválida") for r in extra["all_block_statistics"]["records"][:blocks] if not r["evaluated"])
+                raise ValueError("Una prueba del tramo reciente no pudo evaluarse: " + failure)
             recent_evidence = evidence[:blocks]
         else:
             recent_evidence = []
@@ -380,6 +390,11 @@ def pair_analysis(y, x, cfg):
             state = "intermitente"
         else:
             state = "sin relación"
+        if cfg.get("binomial_gate"):
+            if not extra["binomial_evidence"]["significant"]:
+                state = "sin relación (compatible con azar)"
+            elif state not in ("estable",):
+                state = "intermitente"
         if cfg.get("provisional") and state == "estable":
             state = "Estable (provisional)"
         fit = sm.OLS(logs.y, sm.add_constant(logs.x)).fit()
@@ -390,8 +405,8 @@ def pair_analysis(y, x, cfg):
         if std_long <= 0 or std_short <= 0:
             raise ValueError("La diferencia no tiene dispersión válida para compararla.")
         rolling = []
-        ends = list(range(window, len(logs) + 1, cfg["rolling_step"]))
-        if ends[-1] != len(logs):
+        ends = list(range(window, len(logs) + 1, cfg["rolling_step"])) if cfg.get("include_rolling", True) else []
+        if ends and ends[-1] != len(logs):
             ends.append(len(logs))
         for end in ends:
             sample = logs.iloc[end-window:end]

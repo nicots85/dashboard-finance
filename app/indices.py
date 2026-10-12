@@ -154,7 +154,10 @@ def cointegration_model(db_path, signature, settings_json, _minute, y, x, tf="1D
             raw, info = select_exchange(raw, pilot["exchanges"][symbol])
             sources.append(info["exchange"])
         bars = prepare_stored(raw, symbol, _minute, pilot["calendars"][symbol]) if tf == "4h" else prepare_bars(raw, symbol, tf, pilot["calendars"][symbol], _minute)
-        values.append(bars[bars.closed].set_index("session" if tf == "1D" else "timestamp").close)
+        closed = bars[bars.closed]
+        if tf == "1D" and pilot.get("deduplicate_daily_sessions"):
+            closed = closed.drop_duplicates("session", keep="last")
+        values.append(closed.set_index("session" if tf == "1D" else "timestamp").close)
     common = pd.concat([value.rename(str(i)) for i, value in enumerate(values)], axis=1, join="inner").dropna()
     common = common[(common > 0).all(axis=1)]
     params = cointegration_parameters(pilot, y, x, tf, len(common))
@@ -538,6 +541,10 @@ def render_cointegration(db_path, signature, settings_json, minute, pilot, pairs
         with st.spinner("Comparando ventanas y la línea base larga..."):
             result = cointegration_model(db_path, signature, settings_json, minute, p["y"], p["x"], tf=tf)
         st.write("**Estado: " + result["state"] + "**")
+        if result.get("binomial_evidence"):
+            evidence = result["binomial_evidence"]
+            threshold = evidence["minimum_confirmed"]
+            st.caption(f"Evidencia binomial: {evidence['confirmed']} bloques confirmados de {evidence['evaluated']} evaluados · esperables por azar: {evidence['expected_by_chance']:.2f} · mínimo significativo: {threshold if threshold is not None else 'no disponible'} · {evidence['conclusion']}.")
         if result.get("all_block_statistics") is not None:
             statistics = result["all_block_statistics"]
             if statistics["confirmation_pct"] is not None:
@@ -583,6 +590,9 @@ def render_cointegration(db_path, signature, settings_json, minute, pilot, pairs
             st.write("Estable (provisional) exige cuatro de cuatro bloques confirmados en ambos órdenes, contraste concordante y Johansen con una relación. La historia es limitada y el resultado no equivale a la regla normal." if result.get("limited_history") else "Estable exige confirmación en ambos órdenes, contraste concordante, Johansen con una relación y al menos cuatro de cinco bloques confirmados. Intermitente indica confirmaciones parciales o discrepancias. Sin relación significa sin confirmación en los períodos evaluados.")
             if result.get("all_block_statistics") is not None:
                 st.json({"todos_los_bloques": result["all_block_statistics"], "tramo_reciente": result["recent_block_statistics"]})
+            if result.get("binomial_evidence"):
+                st.json({"evidencia_binomial": result["binomial_evidence"]})
+                st.write("Intermitente requiere evidencia binomial significativa en todos los bloques evaluados; un p-valor aislado o una confirmación compatible con azar no basta. Estable mantiene además sus condiciones recientes, contraste y Johansen aprobados.")
         academic = "**Contexto académico — no interviene en los números:** Engle y Granger (1987) desarrollaron pruebas para estudiar un equilibrio entre series con tendencia; no estudiaron específicamente estos pares de índices. [Referencia verificada](https://doi.org/10.2307/1913236)."
         if pilot.get("regular_session"):
             academic = academic.replace("pares de índices", "pares de ETF")

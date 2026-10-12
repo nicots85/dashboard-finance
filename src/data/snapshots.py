@@ -19,7 +19,7 @@ from src.data.db_manager import DEFAULT_DB_PATH
 from src.data.four_hour import series_descriptor, policy
 from src.indices_math import alignment, prepare_bars, session_vwap
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
 
@@ -27,6 +27,10 @@ SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
 def direction_definition_label(content):
     return {"alt1": "definición Alt 1", "alt3_umbral005": "definición Alt 3 (umbral 0,05 × ATR)"}.get(
         content.get("direction_definition"), "definición antigua")
+
+
+def cointegration_definition_label(content):
+    return "Evidencia de bloques con prueba binomial frente al azar" if content.get("cointegration_definition") == "binomial_blocks_v1" else "Regla anterior: sin filtro binomial de azar"
 
 
 def machine_name():
@@ -253,10 +257,12 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
         for section in SECTIONS:
             sections[section] = section_snapshot(conn, section, assets_cfg)
         sections["indices"]["kpis"] = indices_kpis(conn)
-        from src.data.pilot_snapshot import section_indicators
+        from src.data.pilot_snapshot import section_indicators, pair_indicators
+        pair_configs = yaml.safe_load((ROOT / "config/pairs.yaml").read_text())
+        sections["indices"]["pilot_cointegration"] = pair_indicators(conn, pilots["indices"], pair_configs["indices"], now)
         for section in ("metales", "cripto", "equity"):
             if pilots[section].get("enabled"):
-                pair_cfg = yaml.safe_load((ROOT / "config/pairs.yaml").read_text())[section]
+                pair_cfg = pair_configs[section]
                 sections[section].update(section_indicators(conn, section, assets_cfg[section]["activos"], pilots[section], now,
                                                              calc_config=params, pairs=pair_cfg))
         sections["argentina"]["ccl"] = argentina_ccl(conn)
@@ -264,7 +270,7 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
         conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
             photo_id, now.isoformat(timespec="seconds"), machine_name(), trigger, status, int(late),
             app_version(), config_hash(), json.dumps(tfs_scope or ALL_TF), json.dumps(errors or [], ensure_ascii=False),
-            json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "alignment_format": 1, "direction_definition": "alt3_umbral005", "sections": sections}, ensure_ascii=False, default=str)))
+            json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "alignment_format": 1, "direction_definition": "alt3_umbral005", "cointegration_definition": "binomial_blocks_v1", "sections": sections}, ensure_ascii=False, default=str)))
         conn.commit()
         return photo_id
     finally:
@@ -282,6 +288,7 @@ def list_photos(db_path=DEFAULT_DB_PATH, limit=200):
             item = dict(zip(["id", "created_at", "machine", "trigger", "status", "late", "app_version", "params_hash", "tfs_scope", "errors"], r[:10]))
             item["four_hour_label"] = "4h versionada" if json.loads(r[10]).get("four_hour_format") == 2 else "4h antigua"
             item["direction_definition_label"] = direction_definition_label(json.loads(r[10]))
+            item["cointegration_definition_label"] = cointegration_definition_label(json.loads(r[10]))
             photos.append(item)
         return photos
     finally:
@@ -302,6 +309,7 @@ def get_photo(photo_id, db_path=DEFAULT_DB_PATH):
         # Marca derivada al leer; NO reescribe ni completa contenido histórico.
         data["four_hour_label"] = "4h versionada" if data["content"].get("four_hour_format") == 2 else "4h antigua"
         data["direction_definition_label"] = direction_definition_label(data["content"])
+        data["cointegration_definition_label"] = cointegration_definition_label(data["content"])
         return data
     finally:
         conn.close()

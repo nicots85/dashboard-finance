@@ -80,7 +80,9 @@ class SnapshotTests(unittest.TestCase):
     def test_opening_app_does_not_create_photo(self):
         before = len(list_photos(DEFAULT_DB_PATH))
         from streamlit.testing.v1 import AppTest
-        a = AppTest.from_file(str(Path(__file__).parent / "app/main.py"), default_timeout=600).run()
+        # La base real y los cuatro pilotos requieren más tiempo que el fixture
+        # de texto. Un timeout sigue siendo un fallo, no se omite la prueba.
+        a = AppTest.from_file(str(Path(__file__).parent / "app/main.py"), default_timeout=1800).run()
         self.assertFalse(a.exception, [e.value for e in a.exception])
         self.assertEqual(len(list_photos(DEFAULT_DB_PATH)), before)
 
