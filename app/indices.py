@@ -1,4 +1,4 @@
-"""Piloto guiado por config/sections.yaml: Índices, Metales, Cripto y Equity."""
+"""Pilotos guiados por config/sections.yaml, incluidos Equity y Small caps."""
 import json
 import subprocess
 import sys
@@ -14,8 +14,8 @@ from src.calc.regime import get_latest_market_regime
 from src.data.four_hour import prepare_stored, market_results, sufficient_history, policy, series_descriptor
 from src.indices_math import (prepare_bars, freshness, alignment, daily_means, relative_performance,
     session_vwap, select_range, aggregate_4h, aggregate_regular_hours, unexpected_gaps, pair_analysis, ratio_analysis, ALIGNMENT_LEGEND, schedule)
-from src.presentation import asset_label, pair_label, help_text, TF_LABELS, section_terms, rich_text, definition
-from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage, cointegration_parameters
+from src.presentation import asset_label, pair_label, help_text, TF_LABELS, section_terms, rich_text, definition, explain_symbols
+from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage, cointegration_parameters, smallcaps_indicators
 from src.equity_math import regular_stock_bars, equity_indicators
 
 TFS = ["1m", "5m", "15m", "1h", "4h", "1D"]
@@ -130,6 +130,11 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
             bars = prepare_bars(raw_data(db_path, benchmark_symbol, "1D", signature), benchmark_symbol, "1D", pilot["calendars"].get(benchmark_symbol, "NYSE"), now)
             benchmark = daily_means(bars).set_index("session").close
     perf = relative_performance(series, benchmark, pilot["relative_strength_sessions"])
+    for spec in pilot.get("ratios", []):
+        for symbol in (spec["y"], spec["x"]):
+            if symbol not in daily:
+                bars = prepare_bars(raw_data(db_path, symbol, "1D", signature), symbol, "1D", pilot["calendars"][symbol], now)
+                daily[symbol] = daily_means(bars)
     between = common_performance(series, pilot["relative_strength_sessions"]) if pilot.get("compare_all_assets") else None
     ratios = {spec["label"]: ratio_reading(daily, spec)[0] for spec in pilot.get("ratios", [])}
     vwaps = crypto_vwap_readings(frames, assets[section]["activos"], pilot["vwap"]["minimum_volume_coverage"]) if crypto else {}
@@ -138,7 +143,8 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
             "performance_between": between,
             "ratios": ratios, "session_vwaps": vwaps, "exchanges": exchanges,
             "pair_coverage": pair_coverage(frames, pairs[section], pilot) if crypto else [],
-            "equity": equity_indicators(rows, daily, frames, benchmark, pilot) if regular else None,
+            "equity": equity_indicators(rows, daily, frames, benchmark, pilot) if pilot.get("summary_layout") == "equity" else None,
+            "smallcaps": smallcaps_indicators(rows, daily, pilot) if pilot.get("summary_layout") == "smallcaps" else None,
             "calculated_at": pd.Timestamp.now(tz="UTC").isoformat()}
 
 
@@ -259,10 +265,30 @@ def render_equity_summary(pilot, model, section):
     st.caption("Verde: precio por encima de su media; rojo: por debajo; gris: historia insuficiente. Sectores ordenados por distancia diaria, de mayor a menor. La intensidad es separación, no una orden de compra o venta.")
 
 
+def render_smallcaps_summary(pilot, model):
+    k = model["smallcaps"]
+    cols = st.columns(4)
+    with cols[0]:
+        metric("ETF que suben", f"{k['up']} de {k['total']}", "Direcciones diarias de IWM, IJR, IWO e IWN. Se avisa si el cierre disponible es antiguo.")
+    for column, field, title in ((cols[1], "relative", "Fuerza relativa " + asset_label("IWM") + " / " + asset_label("^GSPC")),
+                                 (cols[2], "growth_value", "Crecimiento frente a valor " + asset_label("IWO") + " / " + asset_label("IWN"))):
+        with column:
+            row = k[field]
+            metric(title, f"{row['ratio']:.6f}" if row["ratio"] is not None else "Sin datos comunes",
+                   "Cociente de cierres diarios comunes; su distancia a la media, percentil y tendencia se muestran en el detalle del ratio.",
+                   f"{row['distance_pct']:+.2f}% vs media · {row['trend']}" if row["distance_pct"] is not None else None)
+    with cols[3]:
+        row = k["stretched"]
+        metric("Mayor separación de la media", asset_label(row["symbol"]) if row else "Sin media válida",
+               "Mayor separación absoluta de la EMA diaria normalizada por el desvío de 50 cierres. No equivale a fuerza relativa ni a reversión segura.",
+               f"{row['distance_pct']:+.2f}% · {row['distance_std']:+.2f} desvíos" if row else None)
+
+
 def render_ratios(pilot, daily, section):
     for spec in pilot.get("ratios", []):
         y, x = spec["y"], spec["x"]
-        st.subheader(spec["label"], help=help_text("ratio", y, x))
+        label = asset_label(y) + " / " + asset_label(x) if section == "smallcaps" else spec["label"]
+        st.subheader(label, help=help_text("ratio", y, x))
         reading, result = ratio_reading(daily, spec)
         if result.empty or pd.isna(result["mean"].iloc[-1]):
             st.info("Historia común insuficiente para calcular el ratio y su distancia a la media.")
@@ -270,21 +296,26 @@ def render_ratios(pilot, daily, section):
         last = result.iloc[-1]
         c1, c2, c3 = st.columns(3)
         with c1:
-            metric("Ratio " + spec["label"], f"{last.ratio:.4f}", "Cociente de los cierres diarios de ambos instrumentos en la misma sesión.")
+            metric("Ratio " + label, f"{last.ratio:.4f}", "Cociente de los cierres diarios de ambos instrumentos en la misma sesión.")
         with c2:
             metric("Distancia a la media del ratio", f"{last.distance_pct:+.2f}%", f"Separación del cociente frente a su media simple de {spec['window']} cierres comunes.")
         with c3:
             metric("Distancia por desvío del ratio", f"{last.distance_std:+.2f}" if pd.notna(last.distance_std) else "Sin dispersión",
                    f"Separación del cociente dividida por el desvío muestral de {spec['window']} cierres comunes; no se usa ATR sintético.")
-        subject = "activo" if pilot.get("vwap_mode") == "utc" else "metal"
+        subject = "activo" if pilot.get("vwap_mode") == "utc" else "ETF" if section == "smallcaps" else "metal"
         st.caption(f"Última sesión común: {result.index[-1]} · Media y desvío: {spec['window']} cierres comunes. Si sube el ratio, el primer {subject} gana terreno frente al segundo; no es una señal automática.")
         if spec.get("percentile_window"):
-            st.caption("Exchanges del ratio: " + pilot_asset_label(pilot, y, exchange=reading.get("y_exchange")) + " / " + pilot_asset_label(pilot, x, exchange=reading.get("x_exchange")))
-            metric("Percentil de " + spec["label"], f"{reading['percentile']:.1f}%" if reading.get("percentile") is not None else "Historia insuficiente",
+            if pilot.get("exchanges"):
+                st.caption("Exchanges del ratio: " + pilot_asset_label(pilot, y, exchange=reading.get("y_exchange")) + " / " + pilot_asset_label(pilot, x, exchange=reading.get("x_exchange")))
+            else:
+                st.caption("Fuentes del ratio: " + asset_label(y) + " / " + asset_label(x) + " · Yahoo, sobre cierres diarios comunes.")
+            metric("Percentil de " + label, f"{reading['percentile']:.1f}%" if reading.get("percentile") is not None else "Historia insuficiente",
                    f"Posición de la distancia por desvío del ratio (con signo) frente a sus últimas {spec['percentile_window']} observaciones diarias válidas. No se usa ATR sintético.")
+        if spec.get("trend_period"):
+            st.caption("Tendencia del ratio: " + reading["trend"] + " · " + reading["trend_method"])
         visible = result.tail(spec.get("chart_sessions", 500))
         fig = go.Figure()
-        for column, title in [("ratio", spec["label"]), ("mean", f"Media de {spec['window']} cierres")]:
+        for column, title in [("ratio", label), ("mean", f"Media de {spec['window']} cierres")]:
             fig.add_trace(go.Scatter(x=visible.index, y=visible[column], name=title))
         fig.update_layout(height=280, yaxis_title="Cociente de precios", xaxis_title="Sesión común")
         st.plotly_chart(fig, width="stretch", key=widget_key(section, f"pilot_ratio_{y}_{x}"))
@@ -652,6 +683,8 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
             if changed:
                 observed = sorted({source for info in changed for source in info["sources"]})
                 st.warning("Cambio de fuente para " + asset_label(symbol) + ": " + ", ".join(observed) + "; preferida " + pilot["exchanges"][symbol] + ". Cada lectura y VWAP usa una sola exchange; revisá Fuentes y calidad.")
+    elif pilot.get("summary_layout") == "smallcaps":
+        render_smallcaps_summary(pilot, model)
     elif regular:
         render_equity_summary(pilot, model, section)
     else:
@@ -765,7 +798,8 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
             if n["asset"] in wanted:
                 st.write(f"{asset_label(n['asset'])}: {n['message']}")
     with st.expander("Cómo leer esto"):
-        st.write(pilot.get("reading_notes", "Primero mirá si varios índices y escalas coinciden. La fuerza relativa compara rendimientos; estar lejos de una media no equivale a ser más fuerte. Las bandas de sesión describen distancia, no aseguran reversión. Revisá fechas, fuente y velas abiertas antes de comparar con tu plataforma."))
+        notes = pilot.get("reading_notes", "Primero mirá si varios índices y escalas coinciden. La fuerza relativa compara rendimientos; estar lejos de una media no equivale a ser más fuerte. Las bandas de sesión describen distancia, no aseguran reversión. Revisá fechas, fuente y velas abiertas antes de comparar con tu plataforma.")
+        st.write(explain_symbols(notes) if section == "smallcaps" else notes)
     with st.expander("Glosario"):
         for term in section_terms(section, macro_ids):
             try:

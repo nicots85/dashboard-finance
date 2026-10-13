@@ -39,9 +39,26 @@ def ratio_reading(daily, spec):
         value = history.percentile.iloc[-1] if len(history) else None
         fields["percentile"] = float(value) if value is not None and pd.notna(value) else None
         fields["percentile_window"] = spec["percentile_window"]
-        for key, symbol in (("y_exchange", y), ("x_exchange", x)):
-            fields[key] = str(daily[symbol].source.iloc[-1]) if "source" in daily[symbol] and len(daily[symbol]) else None
+        for side, symbol in (("y", y), ("x", x)):
+            source = str(daily[symbol].source.iloc[-1]) if "source" in daily[symbol] and len(daily[symbol]) else None
+            fields[side + ("_source" if source == "yahoo" else "_exchange")] = source
+    if spec.get("trend_period"):
+        lag = spec["trend_period"]
+        change = history["mean"].diff(lag).iloc[-1] if len(history) > lag else None
+        tolerance = abs(fields["mean"] or 0) * 1e-12
+        fields["trend"] = "sin historia" if change is None or pd.isna(change) else "creciente" if change > tolerance else "decreciente" if change < -tolerance else "plana"
+        fields["trend_period"] = lag
+        fields["trend_method"] = f"Pendiente de la media simple de {spec['window']} cierres sobre los últimos {lag} cierres comunes"
     return fields, history
+
+
+def smallcaps_indicators(rows, daily, pilot):
+    ratios = {spec["label"]: ratio_reading(daily, spec)[0] for spec in pilot["ratios"]}
+    distances = [row for row in rows if row["distance_std"] is not None]
+    return {"up": sum(row["direction"].startswith("alcista") for row in rows),
+            "down": sum(row["direction"].startswith("bajista") for row in rows), "total": len(rows),
+            "relative": ratios["IWM/S&P 500"], "growth_value": ratios["IWO/IWN"],
+            "stretched": max(distances, key=lambda row: abs(row["distance_std"]), default=None)}
 
 
 def select_exchange(raw, expected, requested=None):

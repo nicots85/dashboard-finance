@@ -28,8 +28,9 @@ def without_cointegration(tab):
 
 def run(destination, old_rule=False):
     from streamlit.testing.v1 import AppTest
-    from testing_clock import monotonic_apptest_wait
+    from testing_clock import monotonic_apptest_wait, fixed_regression_time
     monotonic_apptest_wait()
+    fixed_regression_time()
     import app.indices as pilot
     from src.data.backup import ROOT
     if old_rule:

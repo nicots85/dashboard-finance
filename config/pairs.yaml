@@ -42,6 +42,10 @@ cripto:
     x: "SOL/USDT"
     nombre: "Bitcoin / Solana"
 
+smallcaps:
+  - {y: "IWM", x: "^GSPC", nombre: "Pequeñas empresas / S&P 500"}
+  - {y: "IWO", x: "IWN", nombre: "Crecimiento / Valor"}
+
 argentina:
   - y: "GGAL.BA"
     x: "GGAL"

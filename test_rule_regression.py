@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import pandas as pd
 
 from src.data.backup import ROOT, snapshot_database
 from src.data.db_manager import DEFAULT_DB_PATH
@@ -18,7 +19,9 @@ class RuleRegression(unittest.TestCase):
             folder = Path(tmp)
             db = folder / "same.db"
             snapshot_database(DEFAULT_DB_PATH, str(db))
-            env = dict(os.environ, FINANCE_DB_PATH=str(db), OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1")
+            asof = pd.Timestamp.now(tz="UTC").isoformat()
+            env = dict(os.environ, FINANCE_DB_PATH=str(db), FINANCE_REGRESSION_ASOF=asof, OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1")
+            print("Corte compartido de regresión: " + asof, flush=True)
             dumps = {}
             for label, flag in (("before", ["--old-rule"]), ("after", [])):
                 output = folder / (label + ".json")
@@ -35,7 +38,6 @@ class RuleRegression(unittest.TestCase):
                     reports[section][group] = compare(a, b)
                 full, untouched = reports[section]["all"], reports[section]["non_cointegration"]
                 print(f"\n{section}: {full['elements_compared']} elementos; {full['differences']} diferencias de regla; fuera de cointegración {untouched['differences']}")
-                self.assertEqual(untouched["differences"], 0)
             target = os.environ.get("RULE_REGRESSION_OUTPUT_DIR")
             if target:
                 destination = Path(target)
@@ -43,6 +45,9 @@ class RuleRegression(unittest.TestCase):
                 for label, value in dumps.items():
                     (destination / (label + ".json")).write_text(json.dumps(value, ensure_ascii=False, indent=2))
                 (destination / "report.json").write_text(json.dumps(reports, ensure_ascii=False, indent=2))
+                (destination / "asof.txt").write_text(asof)
+            for section, report in reports.items():
+                self.assertEqual(report["non_cointegration"]["differences"], 0, "Cambió contenido fuera de cointegración: " + section)
 
 
 if __name__ == "__main__":

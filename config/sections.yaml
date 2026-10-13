@@ -303,3 +303,51 @@ equity:
     - "Vista principal de sesión regular de Nueva York, sin premercado. VWAP desde las 09:30 con el precio y volumen del mismo ETF o acción; respeta cierres anticipados y el cambio de hora."
     - "4h de sesión: 09:30–13:30 y 13:30–16:00 de Nueva York. La segunda vela puede ser más corta; no es la 4h del proveedor ni incluye premercado."
   reading_notes: "El conteo sectorial usa los once ETF y las siete tecnológicas se cuentan por separado, según el último cierre diario guardado. Líder y rezagado comparan rendimientos con el S&P 500 sobre las mismas veinte ruedas comunes de todos los sectores, no distancia a la media. El mapa de calor muestra separación porcentual de la EMA de 50 cierres; verde significa por encima, rojo por debajo y gris sin historia válida. Su orden usa la distancia diaria, no una recomendación. El VWAP usa solo precio y volumen del mismo instrumento desde las 09:30 NY. La 4h se construye dentro de la sesión y su segunda vela puede ser más corta. La cointegración se evalúa solo en diario; las otras escalas informan Historia insuficiente. La tasa nominal a diez años, la curva y el spread high yield dan contexto. Revisá siempre la fecha y la calidad de los datos."
+smallcaps:
+  enabled: true
+  label: "Small caps"
+  noun: "ETF de pequeñas empresas"
+  noun_singular: "ETF"
+  summary_layout: smallcaps
+  detail_subject: "El ETF"
+  regular_session: true
+  names: {}
+  references: {IWM: [], IJR: [], IWO: [], IWN: []}
+  calendars: {IWM: NYSE, IJR: NYSE, IWO: NYSE, IWN: NYSE, "^GSPC": NYSE}
+  vwap_instruments: [IWM, IJR, IWO, IWN]
+  default_ranges:
+    "1m": {sessions: 2}
+    "5m": {sessions: 5}
+    "15m": {sessions: 10}
+    "1h": {months: 1}
+    "4h": {months: 3}
+    "1D": {years: 2}
+  default_timeframe: "1D"
+  vwap: {price: typical, bands: [1, 2], minimum_volume_coverage: 0.95}
+  daily_means: [50, 200]
+  relative_strength_sessions: 20
+  benchmark: "^GSPC"
+  show_relative_strength: false
+  macro_series: [DGS10, BAMLH0A0HYM2]
+  vwap_sessions: [regular]
+  cointegration_scales: ["1D", "1h", "4h"]
+  pair_selector_label: "Par de Small caps"
+  cointegration:
+    primary_window: 500
+    contrast_window: 1000
+    short_spread_window: 250
+    long_baseline: full_history
+    required_blocks: 5
+    stable_blocks: 4
+    p_threshold: 0.05
+    johansen_diff_lags: 1
+    rolling_step: 21
+    all_block_statistics: true
+    binomial_gate: {null_probability: 0.05, alpha: 0.05}
+  ratios:
+    - {y: IWM, x: "^GSPC", label: "IWM/S&P 500", window: 50, percentile_window: 250, trend_period: 5, chart_sessions: 500}
+    - {y: IWO, x: IWN, label: "IWO/IWN", window: 50, percentile_window: 250, trend_period: 5, chart_sessions: 500}
+  notices:
+    - "Vista principal de sesión regular, sin premercado. Cada VWAP usa precio y volumen del mismo ETF desde las 09:30 de Nueva York. La segunda 4h de sesión termina en el cierre y puede ser más corta."
+    - "IWO e IWN pueden tener velas de baja actividad o intervalos sin datos en Yahoo; los posibles huecos se avisan y no se inventan precios ni volumen."
+  reading_notes: "El conteo de subas usa los cuatro ETF y sus últimos cierres diarios disponibles. IWM/S&P 500 compara pequeñas empresas con grandes; IWO/IWN compara crecimiento con valor. Un ratio creciente indica mejor desempeño relativo del primero, no una orden de compra ni una cotización de dominancia. Media y desvío usan 50 cierres comunes; el percentil compara la distancia por desvío con las últimas 250 observaciones válidas. La tendencia del ratio es la pendiente de su media sobre los últimos cinco cierres comunes. El VWAP reinicia a las 09:30 NY y usa solo precio y volumen del mismo ETF, sin premercado. La cointegración se calcula solo en diario y requiere superar la evidencia esperable por azar con una prueba binomial; las otras escalas se rotulan Historia insuficiente. La tasa a diez años y el spread high yield dan contexto. Revisá siempre fechas, fuentes y avisos."

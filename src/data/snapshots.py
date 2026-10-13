@@ -19,7 +19,7 @@ from src.data.db_manager import DEFAULT_DB_PATH
 from src.data.four_hour import series_descriptor, policy
 from src.indices_math import alignment, prepare_bars, session_vwap
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
 
@@ -260,7 +260,7 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
         from src.data.pilot_snapshot import section_indicators, pair_indicators
         pair_configs = yaml.safe_load((ROOT / "config/pairs.yaml").read_text())
         sections["indices"]["pilot_cointegration"] = pair_indicators(conn, pilots["indices"], pair_configs["indices"], now)
-        for section in ("metales", "cripto", "equity"):
+        for section in ("metales", "cripto", "equity", "smallcaps"):
             if pilots[section].get("enabled"):
                 pair_cfg = pair_configs[section]
                 sections[section].update(section_indicators(conn, section, assets_cfg[section]["activos"], pilots[section], now,

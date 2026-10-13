@@ -4,7 +4,7 @@ import pandas as pd
 from src.indices_math import prepare_bars, daily_means, relative_performance, freshness, alignment, pair_analysis
 from src.calc.regime import get_latest_market_regime
 from src.data.four_hour import prepare_stored, market_results
-from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage, cointegration_parameters
+from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage, cointegration_parameters, smallcaps_indicators
 from src.equity_math import regular_stock_bars, equity_indicators
 
 
@@ -53,6 +53,11 @@ def section_indicators(conn, section, assets, pilot, now, calc_config=None, pair
             bars = bars.drop_duplicates("session", keep="last")
         daily[symbol] = daily_means(bars)
     series = {symbol: frame.set_index("session").close for symbol, frame in daily.items()}
+    for spec in pilot.get("ratios", []):
+        for symbol in (spec["y"], spec["x"]):
+            if symbol not in daily:
+                raw = pd.read_sql_query("SELECT * FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp", conn, params=(symbol,))
+                daily[symbol] = daily_means(prepare_bars(raw, symbol, "1D", pilot["calendars"][symbol], now))
     ratios = [ratio_reading(daily, spec)[0] for spec in pilot.get("ratios", [])]
     relative = {}
     kpis = {}
@@ -101,16 +106,20 @@ def section_indicators(conn, section, assets, pilot, now, calc_config=None, pair
         bars = prepare_bars(raw, pilot["benchmark"], "1D", "NYSE", now)
         benchmark = daily_means(bars).set_index("session").close
         rows = []
-        for symbol, data in daily.items():
+        for symbol in assets:
+            data = daily[symbol]
             reading = get_latest_market_regime(data, calc_config["regime"])
             last = data.iloc[-1] if len(data) else None
             rows.append({"symbol": symbol, "direction": reading["direction"],
                          "distance_pct": float(last.distance_pct) if last is not None and pd.notna(last.distance_pct) else None,
                          "distance_std": float(last.distance_std) if last is not None and pd.notna(last.distance_std) else None})
-        equity = equity_indicators(rows, daily, frames, benchmark, pilot)
-        result.update({"kpis": equity["kpis"], "sector_performance": equity["sector_performance"].astype(object).where(pd.notna(equity["sector_performance"]), None).to_dict("records"),
-                       "sector_heatmap": equity["heatmap"].astype(object).where(pd.notna(equity["heatmap"]), None).to_dict("records"),
-                       "regular_session": {"timezone": "America/New_York", "opening": "09:30", "close": "16:00", "include_premarket": False}})
+        if pilot.get("summary_layout") == "equity":
+            equity = equity_indicators(rows, daily, frames, benchmark, pilot)
+            result.update({"kpis": equity["kpis"], "sector_performance": equity["sector_performance"].astype(object).where(pd.notna(equity["sector_performance"]), None).to_dict("records"),
+                           "sector_heatmap": equity["heatmap"].astype(object).where(pd.notna(equity["heatmap"]), None).to_dict("records")})
+        else:
+            result["kpis"] = smallcaps_indicators(rows, daily, pilot)
+        result["regular_session"] = {"timezone": "America/New_York", "opening": "09:30", "close": "16:00", "include_premarket": False}
     if pilot["cointegration"].get("binomial_gate"):
         result["pilot_cointegration"] = pair_indicators(conn, pilot, pairs, now, frames)
     return result

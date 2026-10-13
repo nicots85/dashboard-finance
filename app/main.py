@@ -733,7 +733,7 @@ def render_historial():
             c1.metric("Más fuerte 20 ruedas", k.get("top_relative_20d") or "—")
             c2.metric("Más alineado", k.get("most_aligned") or "—")
             c3.metric("Más alejado", k.get("most_stretched_1d") or "—")
-        for section_name in ("indices", "metales", "cripto", "equity"):
+        for section_name in ("indices", "metales", "cripto", "equity", "smallcaps"):
             stored_section = sections.get(section_name, {})
             ratios = stored_section.get("ratios", [])
             relative = stored_section.get("relative_strength", {})
@@ -782,6 +782,11 @@ def render_historial():
                     evidence = pair.get("binomial_evidence")
                     if evidence:
                         st.caption(f"Guardado en esa foto: {evidence['confirmed']} confirmados / {evidence['evaluated']} evaluados · esperables por azar {evidence['expected_by_chance']:.2f} · mínimo {evidence['minimum_confirmed']} · {evidence['conclusion']}.")
+                if section_name == "smallcaps" and stored_section.get("kpis"):
+                    k = stored_section["kpis"]
+                    st.write(f"ETF que subían en esa foto: {k['up']} de {k['total']}.")
+                    for ratio in stored_section.get("ratios", []):
+                        st.caption(explain_symbols(ratio["label"]) + " · tendencia guardada: " + ratio.get("trend", "no guardada"))
         arg = sections.get("argentina", {}).get("ccl", {})
         if arg.get("median"):
             st.metric("CCL mediano de esa foto", f"${arg['median']:,.0f}")
@@ -909,7 +914,7 @@ def main():
     with tabs[2]:
         render_section_pilot(DB_PATH, render_seccion, section="equity")
     with tabs[3]:
-        render_seccion("smallcaps")
+        render_section_pilot(DB_PATH, render_seccion, section="smallcaps")
     with tabs[4]:
         render_section_pilot(DB_PATH, render_seccion, section="cripto")
     with tabs[5]:

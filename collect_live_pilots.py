@@ -19,9 +19,7 @@ def main():
     now = pd.Timestamp.now(tz="UTC").isoformat()
     report = {"calculated_at": now, "sections": {}}
     for section in ("cripto", "metales", "equity", "smallcaps"):
-        cfg = configs(section) if section != "smallcaps" else None
-        if cfg is None:
-            continue
+        cfg = configs(section)
         model = view_model(args.db, signature, json.dumps(cfg, sort_keys=True), now, section)
         reading = {"rows": model["rows"], "ratios": model["ratios"], "vwaps": model["session_vwaps"],
                    "alignment": model["alignment"], "last_data": max((row["last_data"] for row in model["rows"]), default=None)}
@@ -31,6 +29,8 @@ def main():
             reading["between"] = model["performance_between"].to_dict("records")
         if section == "equity":
             reading["kpis"] = model["equity"]["kpis"]
+        if section == "smallcaps":
+            reading["kpis"] = model["smallcaps"]
         prices = []
         for symbol in ("BTC/USDT", "ETH/USDT", "GC=F"):
             frames = model["frames"].get((symbol, "1m"))
