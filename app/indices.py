@@ -16,10 +16,12 @@ from src.indices_math import (prepare_bars, freshness, alignment, daily_means, r
     session_vwap, select_range, aggregate_4h, aggregate_regular_hours, unexpected_gaps, pair_analysis, ratio_analysis, ALIGNMENT_LEGEND, schedule)
 from src.presentation import asset_label, pair_label, help_text, TF_LABELS, section_terms, rich_text, definition, explain_symbols
 from src.pilot_math import common_performance, ratio_reading, select_exchange, crypto_vwap_readings, crypto_kpis, pair_coverage, cointegration_parameters, smallcaps_indicators
-from src.equity_math import regular_stock_bars, equity_indicators
+from src.argentina_math import argentina_indicators
+from src.equity_math import regular_stock_bars, equity_indicators, session_for
 
 TFS = ["1m", "5m", "15m", "1h", "4h", "1D"]
 FUTURES_NOTICE = "Los futuros continuos de Yahoo pueden tener saltos en los cambios de contrato; no se verificó cómo los ajusta."
+MULTIPLE_PAIRS_NOTE = "Al evaluar muchos pares, algunos aparecerán como «intermitentes» por azar. Tomalo como una pista débil, no como una señal."
 
 
 def pilot_asset_label(pilot, symbol, timeframe=None, exchange=None):
@@ -66,6 +68,7 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
     rows = []
     for symbol in assets[section]["activos"]:
         calendar = pilot["calendars"][symbol]
+        session = session_for(pilot, symbol)
         states = {}
         for tf in TFS:
             if tf not in pilot.get("asset_timeframes", {}).get(symbol, TFS):
@@ -76,13 +79,19 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
                     "Fuente": "Yahoo", "Último dato UTC": stored[1] or "—", "Calidad": pilot["asset_notices"][symbol],
                     "Velas guardadas": stored[0], "Dirección": "sin datos"})
                 continue
-            raw = raw_data(db_path, symbol, "5m" if regular and tf == "1h" else tf, signature)
+            if regular and session and tf == "4h":
+                base_tf = "15m"  # La 4h de sesión se arma desde la escala menor.
+            elif regular and session is None and tf == "1h":
+                base_tf = "5m"
+            else:
+                base_tf = tf
+            raw = raw_data(db_path, symbol, base_tf, signature)
             if crypto:
                 raw, info = select_exchange(raw, pilot["exchanges"][symbol])
                 exchanges[(symbol, tf)] = info
             if regular:
-                bars = regular_stock_bars(raw, symbol, tf, now)
-                effective_calendar = "NYSE"
+                bars = regular_stock_bars(raw, symbol, tf, now, session)
+                effective_calendar = session["calendar"] if session else "NYSE"
             elif tf == "4h":
                 bars = prepare_stored(raw, symbol, now, calendar)
                 effective_calendar = "CME_Equity" if policy(symbol) and policy(symbol)["method"] == "future_utc" else calendar
@@ -138,13 +147,16 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
     between = common_performance(series, pilot["relative_strength_sessions"]) if pilot.get("compare_all_assets") else None
     ratios = {spec["label"]: ratio_reading(daily, spec)[0] for spec in pilot.get("ratios", [])}
     vwaps = crypto_vwap_readings(frames, assets[section]["activos"], pilot["vwap"]["minimum_volume_coverage"]) if crypto else {}
-    return {"rows": rows, "alignment": directions, "daily": daily, "frames": frames, "quality": pd.DataFrame(qualities),
-            "performance": perf, "benchmark_last_session": str(benchmark.index.max()) if len(benchmark) else None,
+    argentina = argentina_indicators(frames, rows, pilot, assets["argentina"]["pares"], assets["argentina"]["equivalencias"], now) \
+        if pilot.get("summary_layout") == "argentina" else None
+    return {"rows": rows, "alignment": directions, "quality": pd.DataFrame(qualities), "frames": frames,
+            "daily": daily, "performance": perf, "benchmark_last_session": str(benchmark.index.max()) if len(benchmark) else None,
             "performance_between": between,
             "ratios": ratios, "session_vwaps": vwaps, "exchanges": exchanges,
             "pair_coverage": pair_coverage(frames, pairs[section], pilot) if crypto else [],
             "equity": equity_indicators(rows, daily, frames, benchmark, pilot) if pilot.get("summary_layout") == "equity" else None,
             "smallcaps": smallcaps_indicators(rows, daily, pilot) if pilot.get("summary_layout") == "smallcaps" else None,
+            "argentina": argentina,
             "calculated_at": pd.Timestamp.now(tz="UTC").isoformat()}
 
 
@@ -284,6 +296,73 @@ def render_smallcaps_summary(pilot, model):
                f"{row['distance_pct']:+.2f}% · {row['distance_std']:+.2f} desvíos" if row else None)
 
 
+def render_argentina_summary(pilot, model):
+    k = model["argentina"]
+    median = k["median"]
+    cols = st.columns(4)
+    with cols[0]:
+        metric("CCL implícito mediano", f"${median['median']:,.1f}" if median["median"] else "Historia insuficiente",
+               f"Mediana de las {len(k['ccl_by_company'])} empresas el {median['last_session']}, con el cierre de cada mercado de esa misma fecha y la equivalencia configurada.",
+               f"{median['change_5']:+.2f}% en {k['ccl_change_sessions']} ruedas" if median["change_5"] is not None else None)
+    with cols[1]:
+        metric("Distancia del CCL a su media", f"{median['distance_std']:+.2f}" if median["distance_std"] is not None else "Sin dispersión",
+               f"Cociente entre la mediana y su media simple de {k['ccl_window']} sesiones, dividido por el desvío muestral de las mismas sesiones.")
+    with cols[2]:
+        metric("Acciones locales que suben", f"{k['local_up']} de {k['local_total']}",
+               "Direcciones diarias de las cinco acciones locales en pesos. Los cierres atrasados se avisan; no es cotización en vivo.",
+               f"{k['local_down']} bajan" if k["local_down"] else None)
+    with cols[3]:
+        row = k["stretched"]
+        metric("Mayor separación de la media", asset_label(row["symbol"]) if row else "Sin media válida",
+               "Mayor separación absoluta frente a la EMA de 50 cierres diarios, dividida por el desvío de 50 cierres. No es el CCL ni predice reversión.",
+               f"{row['distance_pct']:+.2f}% · {row['distance_std']:+.2f} desvíos" if row else None)
+    st.info("El CCL es un tipo de cambio con tendencia: un z alto indica que subió rápido, no que vaya a revertir.")
+    st.subheader("Dólar implícito por empresa (CCL)")
+    records = []
+    for row in k["ccl_by_company"]:
+        records.append({"Empresa": asset_label(row["local"]) if row.get("local") else row["company"], "CCL implícito": row["ccl"],
+                        "% vs mediana": row["vs_median_pct"],
+                        "Estado": "Se aleja de la mediana" if row["highlight"] else "Dentro del umbral"})
+    table = pd.DataFrame(records)
+    threshold = k["dispersion_threshold_pct"]
+    def away(value):
+        return "background-color: #f8cbad" if isinstance(value, (int, float)) and pd.notna(value) and abs(value) > threshold else ""
+    styled = table.style.map(away, subset=["% vs mediana"])
+    st.dataframe(styled.format({"CCL implícito": "{:,.1f}", "% vs mediana": "{:+.2f}%"}, na_rep="—"),
+                 hide_index=True, width="stretch", column_config={
+                     "Empresa": st.column_config.Column(help=help_text("activo")),
+                     "CCL implícito": st.column_config.Column(help="Precio local en pesos multiplicado por las acciones del certificado y dividido por el precio del ADR, en la misma fecha."),
+                     "% vs mediana": st.column_config.Column(help=f"Desvío de esa empresa contra la mediana de las cinco. Se resalta si supera el umbral de {k['dispersion_threshold_pct']}%."),
+                     "Estado": st.column_config.Column(help="Solo describe separación entre empresas; no indica calidad ni precio justo."),
+                     "_index": st.column_config.Column(help=help_text("fila"))})
+    reference = k["dispersion_reference"]
+    if reference.get("sessions"):
+        st.caption(f"Dispersión real de las últimas {reference['sessions']} sesiones (cinco empresas por sesión): "
+                   f"mediana {reference['median']:.2f}%, percentil 90 {reference['p90']:.2f}%, percentil 95 {reference['p95']:.2f}%, "
+                   f"percentil 99 {reference['p99']:.2f}%, máximo {reference['max']:.2f}%. El umbral de {k['dispersion_threshold_pct']}% "
+                   f"se superó en {reference['above_threshold']} de {reference['sessions']} observaciones ({reference['above_threshold_share']:.1f}%).")
+    window = k["intraday_window"]
+    if window["start"]:
+        st.caption(f"CCL intradía: velas de quince minutos solo dentro de la ventana común BYMA–NYSE de {window['start']} a {window['end']} UTC. "
+                   "Fuera de esa ventana no hay CCL intradía y solo se usa el cierre del día.")
+        rows_intraday = [{"Empresa": asset_label(row["local"]) if row.get("local") else row["company"],
+                          "CCL intradía": k["intraday_ccl"].get(row["company"], {}).get("last"),
+                          "Velas de 15m": k["intraday_ccl"].get(row["company"], {}).get("bars"),
+                          "Corte UTC": k["intraday_ccl"].get(row["company"], {}).get("timestamp")}
+                         for row in k["ccl_by_company"]]
+        if rows_intraday:
+            intraday_median = k["intraday_median"]["median"]
+            st.dataframe(pd.DataFrame(rows_intraday), hide_index=True, width="stretch", column_config={
+                "Empresa": st.column_config.Column(help=help_text("activo")),
+                "CCL intradía": st.column_config.Column(help="Misma fórmula, con velas de quince minutos dentro de la ventana común de ambos mercados."),
+                "Velas de 15m": st.column_config.Column(help="Velas comunes usadas; menos cantidad indica liquidez baja o huecos del proveedor."),
+                "Corte UTC": st.column_config.Column(help="Última vela común de la ventana."),
+                "_index": st.column_config.Column(help=help_text("fila"))})
+            st.caption(f"Mediana intradía de esa ventana: {intraday_median:,.1f}." if intraday_median else "Sin mediana intradía en la ventana común.")
+    else:
+        st.info("No hay ventana común BYMA–NYSE con datos de ambos mercados en los últimos días; el CCL intradía queda sin mostrar y el diario sigue disponible.")
+
+
 def render_ratios(pilot, daily, section):
     for spec in pilot.get("ratios", []):
         y, x = spec["y"], spec["x"]
@@ -379,17 +458,26 @@ def render_detail(db_path, signature, pilot, ops, frames, section="indices"):
     chart_label = asset_label(reference)
     if regular:
         base_tf = "5m" if tf == "1h" else tf
-        data = regular_stock_bars(raw_data(db_path, reference, base_tf, signature), reference, tf, now)
-        chart_label = pilot_asset_label(pilot, reference, tf)
-        if tf == "4h":
-            with DatabaseManager(db_path)._get_connection() as conn:
-                descriptor = series_descriptor(reference, conn)
-            st.caption(chart_label + " · " + descriptor["label"])
+        session_spec = session_for(pilot, reference)
+        if session_spec and tf == "4h":
+            data = regular_stock_bars(raw_data(db_path, reference, "15m", signature), reference, tf, now, session_spec)
+            st.caption(pilot_asset_label(pilot, reference, tf) + " · " + session_spec["four_hour_label"] +
+                       " · construida desde velas de quince minutos de la misma sesión; la segunda puede ser más corta.")
             enough, required = sufficient_history(data[data.closed], configs(section)[1])
             if not enough:
                 st.warning(f"Historia insuficiente en 4h de sesión: se requieren {required} velas.")
-        if tf == "1h":
-            st.caption("Horas de sesión reconstruidas desde 09:30 NY usando velas de cinco minutos; el último bloque puede ser parcial.")
+        else:
+            data = regular_stock_bars(raw_data(db_path, reference, base_tf, signature), reference, tf, now, session_spec)
+            chart_label = pilot_asset_label(pilot, reference, tf)
+            if tf == "4h":
+                with DatabaseManager(db_path)._get_connection() as conn:
+                    descriptor = series_descriptor(reference, conn)
+                st.caption(chart_label + " · " + descriptor["label"])
+                enough, required = sufficient_history(data[data.closed], configs(section)[1])
+                if not enough:
+                    st.warning(f"Historia insuficiente en 4h de sesión: se requieren {required} velas.")
+            if tf == "1h":
+                st.caption(f"Horas de sesión reconstruidas desde {session_label(pilot, reference).split()[-3] if session_spec else '09:30'} usando velas de cinco minutos; el último bloque puede ser parcial.")
     elif crypto:
         raw, source_info = select_exchange(raw_data(db_path, reference, tf, signature), pilot["exchanges"][reference])
         data = prepare_stored(raw, reference, now, cal) if tf == "4h" else prepare_bars(raw, reference, tf, cal, now)
@@ -685,6 +773,8 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
                 st.warning("Cambio de fuente para " + asset_label(symbol) + ": " + ", ".join(observed) + "; preferida " + pilot["exchanges"][symbol] + ". Cada lectura y VWAP usa una sola exchange; revisá Fuentes y calidad.")
     elif pilot.get("summary_layout") == "smallcaps":
         render_smallcaps_summary(pilot, model)
+    elif pilot.get("summary_layout") == "argentina":
+        render_argentina_summary(pilot, model)
     elif regular:
         render_equity_summary(pilot, model, section)
     else:
@@ -773,12 +863,24 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
         st.info(notice)
     render_ratios(pilot, model["daily"], section)
     render_detail(db_path, signature, pilot, ops, model["frames"], section)
-    render_cointegration(db_path, signature, settings_json, minute, pilot, pairs[section], section, model)
+    if pilot.get("cointegration"):
+        render_cointegration(db_path, signature, settings_json, minute, pilot, pairs[section], section, model)
+    else:
+        with st.expander(f"Relaciones entre {pilot.get('noun', 'índices')}"):
+            st.write("No se usa cointegración entre la acción local y su ADR: el CCL implícito depende del dólar entre dos mercados que no comparten sesión, por lo que no es una relación estable. Se muestra el CCL implícito, su mediana y la dispersión entre empresas.")
+            st.write("Brecha contra el CCL oficial del BCRA: propuesta documentada, no implementada. Ver docs/paso6_argentina.md.")
     with st.expander("Fuentes, fechas, parámetros y calidad de los datos"):
         st.dataframe(model["quality"], hide_index=True, width="stretch", column_config={**{c: st.column_config.Column(help="Trazabilidad de la lectura del piloto: calendario, fuente y fecha usada.") for c in model["quality"].columns}, "_index": st.column_config.Column(help="Número de fila.")})
         diagnostic = {key: pilot[key] for key in pilot.get("diagnostic_fields", pilot) if key in pilot}
-        hours = {"timezone": "America/New_York", "starts": ["09:30", "13:30"], "label": "4h de sesión"} if regular else ops["platform_4h"]
-        session = {"mode": "regular", "opening": "09:30", "close": "16:00", "calendar": "NYSE"} if regular else ops["cme_vwap_session"]
+        if pilot.get("sessions"):
+            hours = {spec["label"]: {"timezone": spec["timezone"], "starts": [part.split("-")[0] for part in spec["four_hour"]],
+                                     "label": spec["four_hour_label"]} for spec in pilot["sessions"].values()}
+            session = {spec["label"]: {"mode": "regular", "opening": spec["open"], "close": spec["close"],
+                                       "calendar": spec["calendar"], "include_premarket": False}
+                       for spec in pilot["sessions"].values()}
+        else:
+            hours = {"timezone": "America/New_York", "starts": ["09:30", "13:30"], "label": "4h de sesión"} if regular else ops["platform_4h"]
+            session = {"mode": "regular", "opening": "09:30", "close": "16:00", "calendar": "NYSE"} if regular else ops["cme_vwap_session"]
         st.json({"parámetros diarios": calc["regime"], "lectura piloto": diagnostic, "horario 4h": hours, "sesión": session})
         ref_rows = []
         for reference in (assets[section]["activos"] if regular else pilot["names"]):
@@ -799,7 +901,9 @@ def render_section_pilot(db_path, legacy_render, section="indices"):
                 st.write(f"{asset_label(n['asset'])}: {n['message']}")
     with st.expander("Cómo leer esto"):
         notes = pilot.get("reading_notes", "Primero mirá si varios índices y escalas coinciden. La fuerza relativa compara rendimientos; estar lejos de una media no equivale a ser más fuerte. Las bandas de sesión describen distancia, no aseguran reversión. Revisá fechas, fuente y velas abiertas antes de comparar con tu plataforma.")
-        st.write(explain_symbols(notes) if section == "smallcaps" else notes)
+        if pilot.get("cointegration", {}).get("primary_window"):
+            notes = notes + " " + MULTIPLE_PAIRS_NOTE
+        st.write(explain_symbols(notes) if pilot.get("summary_layout") in ("smallcaps", "argentina") else notes)
     with st.expander("Glosario"):
         for term in section_terms(section, macro_ids):
             try:

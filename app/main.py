@@ -787,9 +787,16 @@ def render_historial():
                     st.write(f"ETF que subían en esa foto: {k['up']} de {k['total']}.")
                     for ratio in stored_section.get("ratios", []):
                         st.caption(explain_symbols(ratio["label"]) + " · tendencia guardada: " + ratio.get("trend", "no guardada"))
+                if section_name == "argentina" and stored_section.get("kpis"):
+                    k = stored_section["kpis"]
+                    st.write(f"Acciones locales que subían en esa foto: {k['local_up']} de {k['local_total']}.")
+                    for row in k.get("ccl_by_company", []):
+                        st.caption(f"{row['company']}: CCL {row['ccl']:,.1f} · {row['vs_median_pct']:+.2f}% vs mediana" if row["ccl"] and row["vs_median_pct"] is not None else f"{row['company']}: sin CCL común en esa foto")
         arg = sections.get("argentina", {}).get("ccl", {})
         if arg.get("median"):
             st.metric("CCL mediano de esa foto", f"${arg['median']:,.0f}")
+            if arg.get("change_5") is not None:
+                st.caption(f"En esa foto el CCL mediano había cambiado {arg['change_5']:+.2f}% en cinco ruedas, con {arg.get('companies', 0)} empresas.")
         # Evolución de un activo
         symbols = sorted({a["symbol"] for s in SECTIONS for a in sections.get(s, {}).get("assets", [])})
         sym = st.selectbox("Activo para evolución", symbols, key="hist_asset")
@@ -918,7 +925,7 @@ def main():
     with tabs[4]:
         render_section_pilot(DB_PATH, render_seccion, section="cripto")
     with tabs[5]:
-        render_seccion("argentina")
+        render_section_pilot(DB_PATH, render_seccion, section="argentina")
 
 
 if __name__ == "__main__":

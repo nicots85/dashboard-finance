@@ -27,6 +27,8 @@ def schedule(name, start, end):
 
 
 def trading_segments(name, start, end, regular=False):
+    # regular=True significa sesión de acciones de Nueva York, como antes;
+    # una sesión propia (BYMA) se pide con regular=False y su calendario.
     sch = schedule("NYSE" if regular else name, str(start)[:10], str(end)[:10])
     segments = []
     for row in sch.itertuples():
@@ -271,11 +273,11 @@ def aggregate_4h(hourly, timezone="UTC", open_times=None, calendar_name=None, no
     return result
 
 
-def aggregate_regular_hours(bars, now=None):
-    """Horas desde 09:30 NY, usando velas pequeñas; no corta una hora de Yahoo."""
+def aggregate_regular_hours(bars, now=None, calendar_name="NYSE"):
+    """Horas desde la apertura de la sesión, usando velas pequeñas; no corta una hora de Yahoo."""
     if bars.empty:
         return bars
-    sch = schedule("NYSE", bars.session.iloc[0], bars.session.iloc[-1])
+    sch = schedule(calendar_name, bars.session.iloc[0], bars.session.iloc[-1])
     openings = {str(day.date()): row.market_open for day, row in sch.iterrows()}
     closings = {str(day.date()): row.market_close for day, row in sch.iterrows()}
     start = pd.to_datetime(bars.session.map(openings), utc=True)

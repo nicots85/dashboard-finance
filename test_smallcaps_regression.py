@@ -13,6 +13,29 @@ from src.data.db_manager import DEFAULT_DB_PATH
 from test_regression import compare
 
 BASELINE = "f7aef2e"
+NOTA = "Al evaluar muchos pares, algunos aparecerán como «intermitentes» por azar. Tomalo como una pista débil, no como una señal."
+
+
+def _texto(node):
+    """Texto visible de un nodo, sea markdown, write o caption."""
+    if not isinstance(node, dict):
+        return None
+    content = node.get("content")
+    if isinstance(content, dict):
+        for clave in ("value", "body", "label"):
+            if isinstance(content.get(clave), str):
+                return content[clave]
+    return None
+
+
+def es_nota_esperada(nuevos, viejos):
+    """La única diferencia admitida es la nota agregada a «Cómo leer esto»."""
+    if len(nuevos) != 1 or len(viejos) != 1:
+        return False
+    antes, despues = _texto(viejos[0]), _texto(nuevos[0])
+    if antes is None or despues is None:
+        return False
+    return despues == antes + " " + NOTA
 
 
 def compare_dumps(dumps):
@@ -28,9 +51,14 @@ def compare_dumps(dumps):
 
 
 def assert_unchanged(reports):
+    """Ninguna diferencia salvo la nota de «Cómo leer esto» de cada escenario."""
     for section, report in reports.items():
-        if report["differences"]:
-            raise AssertionError("Cambió " + section)
+        for detail in report.get("details", []):
+            if detail["operation"] != "replace" or not es_nota_esperada(detail["new"], detail["old"]):
+                raise AssertionError(f"{section}: cambio no explicado en {detail['state']}")
+        if len(report.get("details", [])) != len(report.get("state_counts", {})):
+            raise AssertionError(f"{section}: {report['differences']} diferencias inesperadas")
+        print(f"{section}: {len(report.get('details', []))} notas esperadas; 0 cambios de cálculo", flush=True)
 
 
 class SmallcapsRegression(unittest.TestCase):

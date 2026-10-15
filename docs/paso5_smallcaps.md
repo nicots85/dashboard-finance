@@ -217,3 +217,14 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 caffeinate -i 
 ```
 
 El siguiente piloto, Argentina, queda sujeto a confirmación del usuario.
+
+## Auditoría posterior de avisos y correcciones
+
+El desglose por sección y temporalidad, las 154 filas modificadas de la
+actualización y la verificación de que no hubo ningún salto de split están en
+[auditoria_actualizacion.md](auditoria_actualizacion.md). Se reconstruyeron
+desde el registro de la base y desde el respaldo previo, sin volver a
+descargar ni modificar datos.
+
+El comando para correr la suite completa, cuánto tarda y cómo dividirla está
+en [pruebas.md](pruebas.md).

@@ -351,3 +351,61 @@ smallcaps:
     - "Vista principal de sesión regular, sin premercado. Cada VWAP usa precio y volumen del mismo ETF desde las 09:30 de Nueva York. La segunda 4h de sesión termina en el cierre y puede ser más corta."
     - "IWO e IWN pueden tener velas de baja actividad o intervalos sin datos en Yahoo; los posibles huecos se avisan y no se inventan precios ni volumen."
   reading_notes: "El conteo de subas usa los cuatro ETF y sus últimos cierres diarios disponibles. IWM/S&P 500 compara pequeñas empresas con grandes; IWO/IWN compara crecimiento con valor. Un ratio creciente indica mejor desempeño relativo del primero, no una orden de compra ni una cotización de dominancia. Media y desvío usan 50 cierres comunes; el percentil compara la distancia por desvío con las últimas 250 observaciones válidas. La tendencia del ratio es la pendiente de su media sobre los últimos cinco cierres comunes. El VWAP reinicia a las 09:30 NY y usa solo precio y volumen del mismo ETF, sin premercado. La cointegración se calcula solo en diario y requiere superar la evidencia esperable por azar con una prueba binomial; las otras escalas se rotulan Historia insuficiente. La tasa a diez años y el spread high yield dan contexto. Revisá siempre fechas, fuentes y avisos."
+
+argentina:
+  enabled: true
+  label: "Argentina"
+  noun: "acciones argentinas"
+  noun_singular: "la acción"
+  summary_layout: argentina
+  detail_subject: "La acción"
+  regular_session: true
+  names: {}
+  local_assets: [GGAL.BA, YPFD.BA, PAMP.BA, BMA.BA, CEPU.BA]
+  adr_assets: [GGAL, YPF, PAM, BMA, CEPU]
+  references: {GGAL.BA: [GGAL], YPFD.BA: [YPF], PAMP.BA: [PAM], BMA.BA: [BMA], CEPU.BA: [CEPU]}
+  calendars: {GGAL.BA: XBUE, YPFD.BA: XBUE, PAMP.BA: XBUE, BMA.BA: XBUE, CEPU.BA: XBUE, GGAL: NYSE, YPF: NYSE, PAM: NYSE, BMA: NYSE, CEPU: NYSE}
+  sessions:
+    byma:
+      calendar: XBUE
+      timezone: America/Argentina/Buenos_Aires
+      open: "11:00"
+      close: "17:00"
+      label: "BYMA 11:00–17:00 Buenos Aires"
+      four_hour: ["11:00-15:00", "15:00-17:00"]
+      four_hour_label: "4h de sesión BYMA 11:00–15:00 y 15:00–17:00"
+    nyse:
+      calendar: NYSE
+      timezone: America/New_York
+      open: "09:30"
+      close: "16:00"
+      label: "NYSE 09:30–16:00 Nueva York"
+      four_hour: ["09:30-13:30", "13:30-16:00"]
+      four_hour_label: "4h de sesión NYSE 09:30–13:30 y 13:30–16:00"
+  asset_session: {GGAL.BA: byma, YPFD.BA: byma, PAMP.BA: byma, BMA.BA: byma, CEPU.BA: byma, GGAL: nyse, YPF: nyse, PAM: nyse, BMA: nyse, CEPU: nyse}
+  vwap_instruments: [GGAL.BA, YPFD.BA, PAMP.BA, BMA.BA, CEPU.BA]
+  default_ranges:
+    "1m": {sessions: 2}
+    "5m": {sessions: 5}
+    "15m": {sessions: 10}
+    "1h": {months: 1}
+    "4h": {months: 3}
+    "1D": {years: 2}
+  default_timeframe: "1D"
+  vwap: {price: typical, bands: [1, 2], minimum_volume_coverage: 0.95}
+  daily_means: [50, 200]
+  relative_strength_sessions: 20
+  benchmark: "^GSPC"
+  show_relative_strength: false
+  macro_series: [DGS10, DTWEXBGS]
+  vwap_sessions: [regular]
+  ccl_window: 50
+  ccl_change_sessions: 5
+  dispersion_threshold_pct: 2.0
+  notices:
+    - "Acciones locales en pesos: sesión BYMA 11:00–17:00 de Buenos Aires, sin premercado. Cada VWAP usa precio y volumen de la misma acción. La 4h de sesión se construye dentro de BYMA en 11:00–15:00 y 15:00–17:00; la segunda puede ser más corta."
+    - "Los ADR cotizan en Nueva York 09:30–16:00 y su 4h de sesión se construye en 09:30–13:30 y 13:30–16:00."
+    - "BYMA y NYSE no coinciden: hoy la ventana común es 14:00–20:00 UTC y desde el cambio de hora de Estados Unidos pasa a 14:30–20:00 UTC. Fuera de esa ventana no hay CCL intradía y solo se usa el cierre del día."
+    - "Estas acciones son poco líquidas: pueden aparecer huecos entre velas. Se avisan y no se inventan precios ni volumen."
+    - "No se usa cointegración entre la acción local y su ADR: el CCL depende del dólar entre mercados y no es una relación estable."
+  reading_notes: "El CCL implícito de cada empresa es el precio local en pesos multiplicado por la cantidad de acciones del certificado y dividido por el precio del ADR, con la equivalencia de la configuración (diez para YPF). En diario usa el cierre de la misma sesión de cada mercado; en intradía usa velas de quince minutos solamente dentro de la ventana común BYMA–NYSE, que hoy es 14:00–20:00 UTC y desde el cambio de hora de Estados Unidos 14:30–20:00 UTC. La mediana es la de las cinco empresas en la misma fecha; el desvío marca a la empresa que se aleja más del umbral configurado. El CCL es un tipo de cambio con tendencia: un z alto indica que subió rápido, no que vaya a revertir. El conteo de subas y la mayor separación de la media usan las cinco acciones locales en pesos. No se usa cointegración local/ADR. Revisá siempre la fecha, la fuente y los avisos de huecos."

@@ -6,18 +6,40 @@ from src.data.four_hour import prepare_stored
 from src.indices_math import prepare_bars, aggregate_regular_hours, relative_performance
 
 
-def regular_stock_bars(raw, symbol, tf, now):
+def session_for(pilot, symbol):
+    """Sesión configurada por activo; None conserva el horario de Nueva York."""
+    sessions = (pilot or {}).get("sessions") or {}
+    if not sessions:
+        return None
+    return sessions.get((pilot.get("asset_session") or {}).get(symbol, "default"))
+
+
+def session_label(pilot, symbol):
+    spec = session_for(pilot, symbol)
+    return spec.get("label") if spec else "NYSE 09:30–16:00 Nueva York"
+
+
+def regular_stock_bars(raw, symbol, tf, now, session=None):
+    if session is None:
+        if tf == "4h":
+            bars = prepare_stored(raw, symbol, now, "NYSE")
+            # La vista principal no acepta la 4h vieja ni premercado como sesión.
+            if len(bars):
+                local = bars.timestamp.dt.tz_convert("America/New_York")
+                times = local.dt.strftime("%H:%M")
+                bars = bars[bars.source.eq("session_4h_us") & times.isin(["09:30", "13:30"])]
+            return bars.reset_index(drop=True)
+        base = "5m" if tf == "1h" else tf
+        bars = prepare_bars(raw, symbol, base, "NYSE", now, regular=True)
+        return aggregate_regular_hours(bars, now) if tf == "1h" else bars
+    from src.argentina_math import session_four_hour
     if tf == "4h":
-        bars = prepare_stored(raw, symbol, now, "NYSE")
-        # La vista principal no acepta la 4h vieja ni premercado como sesión.
-        if len(bars):
-            local = bars.timestamp.dt.tz_convert("America/New_York")
-            times = local.dt.strftime("%H:%M")
-            bars = bars[bars.source.eq("session_4h_us") & times.isin(["09:30", "13:30"])]
-        return bars.reset_index(drop=True)
+        # La 4h de sesión se arma desde la escala menor: nunca se usa la del
+        # proveedor, que no respeta la apertura ni el cierre del mercado.
+        return session_four_hour(prepare_bars(raw, symbol, "15m", session["calendar"], now), session, now)
     base = "5m" if tf == "1h" else tf
-    bars = prepare_bars(raw, symbol, base, "NYSE", now, regular=True)
-    return aggregate_regular_hours(bars, now) if tf == "1h" else bars
+    bars = prepare_bars(raw, symbol, base, session["calendar"], now)
+    return aggregate_regular_hours(bars, now, session["calendar"]) if tf == "1h" else bars
 
 
 def equity_indicators(rows, daily, frames, benchmark, pilot):

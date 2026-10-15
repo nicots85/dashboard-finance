@@ -17,8 +17,10 @@ def without_cointegration(tab):
                 continue
             content = payload(child)
             if child.type == "json" and scope == ["Fuentes, fechas, parámetros y calidad de los datos"]:
-                content["lectura piloto"]["cointegration"].pop("binomial_gate", None)
-                content["lectura piloto"]["cointegration"].pop("all_block_statistics", None)
+                # Argentina no tiene cointegración; no inventar la clave.
+                if isinstance(content.get("lectura piloto", {}).get("cointegration"), dict):
+                    content["lectura piloto"]["cointegration"].pop("binomial_gate", None)
+                    content["lectura piloto"]["cointegration"].pop("all_block_statistics", None)
             output.append({"type": child.type, "content": content})
             walk(child, scope)
 
@@ -38,9 +40,10 @@ def run(destination, old_rule=False):
 
         def configs(section="indices"):
             values = original(section)
-            values[2]["cointegration"].pop("binomial_gate", None)
-            if section in ("indices", "metales"):
-                values[2]["cointegration"].pop("all_block_statistics", None)
+            if isinstance(values[2].get("cointegration"), dict):
+                values[2]["cointegration"].pop("binomial_gate", None)
+                if section in ("indices", "metales"):
+                    values[2]["cointegration"].pop("all_block_statistics", None)
             return values
 
         pilot.configs = configs

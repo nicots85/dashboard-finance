@@ -19,7 +19,7 @@ from src.data.db_manager import DEFAULT_DB_PATH
 from src.data.four_hour import series_descriptor, policy
 from src.indices_math import alignment, prepare_bars, session_vwap
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 ALL_TF = ["1m", "5m", "15m", "1h", "4h", "1D"]
 SECTIONS = ["indices", "metales", "equity", "smallcaps", "cripto", "argentina"]
 
@@ -225,24 +225,38 @@ def indices_kpis(conn):
     return {"top_relative_20d": top, "most_stretched_1d": stretched, "most_aligned_up_count": aligned.get(best_aligned), "most_aligned": best_aligned}
 
 
-def argentina_ccl(conn):
+def argentina_ccl(conn, now=None):
+    """CCL implícito por empresa, mediana, dispersión y cambio a cinco ruedas."""
     cfg = yaml.safe_load((ROOT / "config/assets.yaml").read_text())["argentina"]
-    equiv = cfg["equivalencias"]
-    values = []
-    for p in cfg["pares"]:
-        ratio = equiv.get(p["adr"])
+    equivalences = cfg["equivalencias"]
+    series = {}
+    for pair in cfg["pares"]:
+        ratio = equivalences.get(pair["adr"])
         if not ratio:
             continue
-        local = pd.read_sql_query("SELECT timestamp,close FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp", conn, params=(p["local"],))
-        adr = pd.read_sql_query("SELECT timestamp,close FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp", conn, params=(p["adr"],))
+        local = pd.read_sql_query("SELECT timestamp,close FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp", conn, params=(pair["local"],))
+        adr = pd.read_sql_query("SELECT timestamp,close FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp", conn, params=(pair["adr"],))
         if local.empty or adr.empty:
             continue
-        a = local.assign(d=pd.to_datetime(local.timestamp, utc=True).dt.date).set_index("d").close
-        b = adr.assign(d=pd.to_datetime(adr.timestamp, utc=True).dt.date).set_index("d").close
-        idx = a.index.intersection(b.index)
-        if len(idx):
-            values.append(float(a.loc[idx].iloc[-1] * ratio / b.loc[idx].iloc[-1]))
-    return {"median": float(pd.Series(values).median()) if values else None, "companies": len(values)}
+        a = local.assign(d=pd.to_datetime(local.timestamp, utc=True).dt.date).groupby("d").close.last()
+        b = adr.assign(d=pd.to_datetime(adr.timestamp, utc=True).dt.date).groupby("d").close.last()
+        common = a.index.intersection(b.index)
+        if len(common):
+            values = (a.loc[common] * ratio / b.loc[common])
+            series[pair["nombre"]] = values[values > 0].rename(pair["nombre"])
+    companies = pd.DataFrame(series).sort_index().dropna(how="all")
+    if companies.empty:
+        return {"median": None, "companies": 0}
+    from src.argentina_math import dispersion, dispersion_reference, median_reading
+    threshold = (yaml.safe_load((ROOT / "config/sections.yaml").read_text())["argentina"].get("dispersion_threshold_pct", 2.0))
+    median = median_reading(companies.median(axis=1).dropna())
+    return {"median": median["median"], "change_5": median["change_5"], "distance_std": median["distance_std"],
+            "last_session": median["last_session"], "sessions": median["sessions"],
+            "companies": len(companies.columns),
+            "by_company": {row["company"]: {"ccl": row["ccl"], "vs_median_pct": row["vs_median_pct"],
+                                             "highlight": row["highlight"]} for row in dispersion(companies, threshold)},
+            "dispersion_threshold_pct": threshold,
+            "dispersion_reference": dispersion_reference(companies, 126, threshold)}
 
 
 def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", errors=None, tfs_scope=None, late=False):
@@ -260,7 +274,7 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
         from src.data.pilot_snapshot import section_indicators, pair_indicators
         pair_configs = yaml.safe_load((ROOT / "config/pairs.yaml").read_text())
         sections["indices"]["pilot_cointegration"] = pair_indicators(conn, pilots["indices"], pair_configs["indices"], now)
-        for section in ("metales", "cripto", "equity", "smallcaps"):
+        for section in ("metales", "cripto", "equity", "smallcaps", "argentina"):
             if pilots[section].get("enabled"):
                 pair_cfg = pair_configs[section]
                 sections[section].update(section_indicators(conn, section, assets_cfg[section]["activos"], pilots[section], now,
