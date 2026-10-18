@@ -325,22 +325,31 @@ def render_argentina_summary(pilot, model):
                         "Estado": "Se aleja de la mediana" if row["highlight"] else "Dentro del umbral"})
     table = pd.DataFrame(records)
     threshold = k["dispersion_threshold_pct"]
+    yellow = k.get("dispersion_yellow_pct", threshold)
     def away(value):
-        return "background-color: #f8cbad" if isinstance(value, (int, float)) and pd.notna(value) and abs(value) > threshold else ""
+        if not (isinstance(value, (int, float)) and pd.notna(value)):
+            return ""
+        size = abs(value)
+        if size > threshold:
+            return "background-color: #f8cbad"
+        return "background-color: #ffe699" if size > yellow else ""
     styled = table.style.map(away, subset=["% vs mediana"])
     st.dataframe(styled.format({"CCL implícito": "{:,.1f}", "% vs mediana": "{:+.2f}%"}, na_rep="—"),
                  hide_index=True, width="stretch", column_config={
                      "Empresa": st.column_config.Column(help=help_text("activo")),
                      "CCL implícito": st.column_config.Column(help="Precio local en pesos multiplicado por las acciones del certificado y dividido por el precio del ADR, en la misma fecha."),
-                     "% vs mediana": st.column_config.Column(help=f"Desvío de esa empresa contra la mediana de las cinco. Se resalta si supera el umbral de {k['dispersion_threshold_pct']}%."),
+                     "% vs mediana": st.column_config.Column(help=f"Desvío de esa empresa contra la mediana de las cinco. Amarillo si supera {yellow:.0g}% y naranja si supera el umbral de {threshold:.0g}%."),
                      "Estado": st.column_config.Column(help="Solo describe separación entre empresas; no indica calidad ni precio justo."),
                      "_index": st.column_config.Column(help=help_text("fila"))})
     reference = k["dispersion_reference"]
     if reference.get("sessions"):
+        counts = (f"naranja desde {threshold:.0g}% en {reference['above_threshold']} de {reference['sessions']} observaciones"
+                  f" ({reference['above_threshold_share']:.1f}%)"
+                  + (f" y amarillo desde {yellow:.0g}% en {reference['above_yellow']} ({reference['above_yellow_share']:.1f}%)"
+                     if reference.get("above_yellow") is not None else ""))
         st.caption(f"Dispersión real de las últimas {reference['sessions']} sesiones (cinco empresas por sesión): "
                    f"mediana {reference['median']:.2f}%, percentil 90 {reference['p90']:.2f}%, percentil 95 {reference['p95']:.2f}%, "
-                   f"percentil 99 {reference['p99']:.2f}%, máximo {reference['max']:.2f}%. El umbral de {k['dispersion_threshold_pct']}% "
-                   f"se superó en {reference['above_threshold']} de {reference['sessions']} observaciones ({reference['above_threshold_share']:.1f}%).")
+                   f"percentil 99 {reference['p99']:.2f}%, máximo {reference['max']:.2f}%. Se superó el nivel " + counts + ".")
     window = k["intraday_window"]
     if window["start"]:
         st.caption(f"CCL intradía: velas de quince minutos solo dentro de la ventana común BYMA–NYSE de {window['start']} a {window['end']} UTC. "

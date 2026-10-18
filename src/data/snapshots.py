@@ -248,15 +248,19 @@ def argentina_ccl(conn, now=None):
     if companies.empty:
         return {"median": None, "companies": 0}
     from src.argentina_math import dispersion, dispersion_reference, median_reading
-    threshold = (yaml.safe_load((ROOT / "config/sections.yaml").read_text())["argentina"].get("dispersion_threshold_pct", 2.0))
+    cls_cfg = yaml.safe_load((ROOT / "config/sections.yaml").read_text())["argentina"]
+    threshold = cls_cfg.get("dispersion_threshold_pct", 2.0)
+    yellow = cls_cfg.get("dispersion_yellow_pct", max(threshold / 2.0, 0.5))
     median = median_reading(companies.median(axis=1).dropna())
     return {"median": median["median"], "change_5": median["change_5"], "distance_std": median["distance_std"],
             "last_session": median["last_session"], "sessions": median["sessions"],
             "companies": len(companies.columns),
             "by_company": {row["company"]: {"ccl": row["ccl"], "vs_median_pct": row["vs_median_pct"],
-                                             "highlight": row["highlight"]} for row in dispersion(companies, threshold)},
+                                            "highlight": row["highlight"], "alert": row["alert"]}
+                           for row in dispersion(companies, threshold, yellow_pct=yellow)},
             "dispersion_threshold_pct": threshold,
-            "dispersion_reference": dispersion_reference(companies, 126, threshold)}
+            "dispersion_yellow_pct": yellow,
+            "dispersion_reference": dispersion_reference(companies, 126, threshold, yellow)}
 
 
 def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", errors=None, tfs_scope=None, late=False):

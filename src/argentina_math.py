@@ -104,8 +104,13 @@ def median_reading(history, window=50, change_sessions=5):
             "last_session": str(history.index[-1]), "sessions": len(history)}
 
 
-def dispersion(companies, threshold_pct, symbols=None):
-    """Desvío de cada empresa contra la mediana de ese mismo día."""
+def dispersion(companies, threshold_pct, symbols=None, yellow_pct=None):
+    """Desvío de cada empresa contra la mediana de ese mismo día.
+
+    Dos niveles de aviso configurables: amarillo (primer nivel) y naranja
+    (segundo nivel, igual al umbral anterior). Guardan la clave anterior.
+    """
+    amber = float(yellow_pct) if yellow_pct is not None else float(threshold_pct)
     if companies.empty:
         return []
     median = companies.median(axis=1)
@@ -114,17 +119,20 @@ def dispersion(companies, threshold_pct, symbols=None):
         history = companies[name].dropna()
         local = (symbols or {}).get(name)
         if history.empty:
-            rows.append({"company": name, "local": local, "ccl": None, "vs_median_pct": None, "highlight": False})
+            rows.append({"company": name, "local": local, "ccl": None, "vs_median_pct": None,
+                         "highlight": False, "alert": None})
             continue
         value = float(history.iloc[-1])
         reference = float(median.loc[history.index[-1]])
         difference = (value / reference - 1) * 100 if reference else None
+        away = difference is not None and abs(difference) > threshold_pct
+        soft = difference is not None and abs(difference) > amber if difference is not None else False
         rows.append({"company": name, "local": local, "ccl": value, "vs_median_pct": difference,
-                     "highlight": bool(difference is not None and abs(difference) > threshold_pct)})
+                     "highlight": bool(away), "alert": "naranja" if away else ("amarillo" if soft else None)})
     return rows
 
 
-def dispersion_reference(companies, window=126, threshold=2.0):
+def dispersion_reference(companies, window=126, threshold=2.0, yellow=None):
     """Dispersión real reciente: sirve para calibrar el umbral, no para ocultarlo."""
     if companies.empty:
         return {"sessions": 0}
@@ -133,11 +141,14 @@ def dispersion_reference(companies, window=126, threshold=2.0):
     deviation = deviation[np.isfinite(deviation)].dropna().tail(window)
     if deviation.empty:
         return {"sessions": 0}
+    counts = {"above_threshold": int((deviation > threshold).sum()),
+              "above_threshold_share": float((deviation > threshold).mean() * 100)}
+    if yellow is not None:
+        counts.update({"above_yellow": int((deviation > yellow).sum()),
+                       "above_yellow_share": float((deviation > yellow).mean() * 100)})
     return {"sessions": int(len(deviation)), "median": float(deviation.median()),
             "p90": float(deviation.quantile(0.9)), "p95": float(deviation.quantile(0.95)),
-            "p99": float(deviation.quantile(0.99)), "max": float(deviation.max()),
-            "above_threshold": int((deviation > threshold).sum()),
-            "above_threshold_share": float((deviation > threshold).mean() * 100)}
+            "p99": float(deviation.quantile(0.99)), "max": float(deviation.max()), **counts}
 
 
 def argentina_indicators(frames, rows, pilot, pares, equivalencias, now, intraday_minutes=15):
@@ -176,12 +187,14 @@ def argentina_indicators(frames, rows, pilot, pares, equivalencias, now, intrada
     companies = pd.DataFrame(daily).sort_index()
     companies = companies.dropna(how="all")
     threshold = pilot.get("dispersion_threshold_pct", 5.0)
+    yellow = pilot.get("dispersion_yellow_pct", max(threshold / 2.0, 0.5))
     local_rows = [row for row in rows if row["symbol"] in local_assets]
     stretched_rows = [row for row in local_rows if row["distance_std"] is not None]
     return {
-        "ccl_by_company": dispersion(companies, threshold, {pair["nombre"]: pair["local"] for pair in pares}),
-        "dispersion_reference": dispersion_reference(companies, pilot.get("dispersion_window", 126), threshold),
+        "ccl_by_company": dispersion(companies, threshold, {pair["nombre"]: pair["local"] for pair in pares}, yellow),
+        "dispersion_reference": dispersion_reference(companies, pilot.get("dispersion_window", 126), threshold, yellow),
         "dispersion_window": pilot.get("dispersion_window", 126),
+        "dispersion_yellow_pct": yellow,
         "median": median_reading(companies.median(axis=1).dropna(),
                                  pilot.get("ccl_window", 50), pilot.get("ccl_change_sessions", 5)),
         "dispersion_threshold_pct": threshold,

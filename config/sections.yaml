@@ -401,6 +401,7 @@ argentina:
   vwap_sessions: [regular]
   ccl_window: 50
   ccl_change_sessions: 5
+  dispersion_yellow_pct: 1.0
   dispersion_threshold_pct: 2.0
   notices:
     - "Acciones locales en pesos: sesión BYMA 11:00–17:00 de Buenos Aires, sin premercado. Cada VWAP usa precio y volumen de la misma acción. La 4h de sesión se construye dentro de BYMA en 11:00–15:00 y 15:00–17:00; la segunda puede ser más corta."
