@@ -1,120 +1,82 @@
-# Prueba rápida: propuesta (no implementada todavía)
+# Prueba rápida: propuesta (implementación PAUSADA)
 
-La suite completa tarda más de ocho horas, así que después de cada cambio no
-se puede correr. Esta es la propuesta para tener una regresión de las seis
-pestañas que corra en pocos minutos. Según lo pedido, todavía **no está
-implementada**.
+> **Estado: pausa decidida por el dueño (octubre 2026).** La infraestructura
+> está escrita y funciona para generar la copia y para saltearse sola, pero
+> la PRIMERA PARIDAD falló con **1.434 diferencias** y se decidió no seguir
+> depurando ahora. Las regresiones rápidas se saltean por defecto; la suite
+> sigue usando las pruebas lentas de siempre cuando se piden a mano.
 
-## Idea central
+## Qué ya está implementado (esperando retomar)
 
-Crear una **base de datos de prueba congelada**: una copia chica de la base
-real que no vuelve a actualizarse nunca, con un reloj congelado. Con eso, la
-regresión de las seis pestañas deja de comparar contra la base grande y
-compara contra resultados ya guardados de esa copia chica.
+- `testing_frozen.py` — resuelve `FINANCE_TEST_FAST_DB`, rechaza la base
+  real y las copias sin la marca de paridad, y saltea si la variable no
+  está.
+- `make_fast_fixture.py` — genera `test_fixtures/db_fast.db` (294 MB,
+  1.361.878 filas; la base grande tiene 700 MB y 3.024.697) con
+  `asof = 2026-10-12T05:00:00Z` (05:00 UTC del día siguiente a la última
+  rueda diaria registrada), recortes por temporalidad conservadores:
+  1m 10 días, 5m 40 días, 15m 120 días, 1h 900 días, y las últimas
+  1.100 ruedas diarias por símbolo; deja las tres últimas fotos en
+  `snapshot_photos`, correcciones completas y avisos de los últimos
+  300 días.
+- `test_fast_fixture.py` — paridad: mismo volcado de las cinco pestañas
+  contra la copia congelada y contra la base grande con el mismo reloj;
+  si da 0 diferencias escribe la marca `validado` en
+  `test_fixtures/fixture.json`. Mantiene los volcados si se le pasa
+  `PARITY_OUTPUT_DIR`.
+- `test_rule_regression.py`, `test_smallcaps_regression.py`,
+  `test_argentina_regression.py` — integradas a la copia congelada: sin
+  la variable se **saltean**; con ella corren en minutos y rechazan
+  explícitamente si la variable apunta a la base real.
 
-## Qué llevaría esa copia
+## Qué mostró la primera paridad (motivo de la pausa)
 
-| Dato | Qué se copia | Por qué alcanza |
-|---|---|---|
-| 1D | últimos 30 días de cada activo, más los 260 días previos que necesitan las medias de 50/200 y la ventana del régimen (263 velas) | La mediana, el cambio a 5 ruedas y el régimen no se calculan sin esa cola histórica; con ella todo queda igual |
-| 4h | la serie ya versionada de cada activo, tal como está guardada | La pestaña nunca reconstruye la 4h al mostrarla |
-| 1h | el mes de historia que usa la vista | El selector de 1h nunca muestra más |
-| 15m | los 10 días de historia que usan las ventanas intradía configuradas | Los rangos por defecto piden exactamente eso |
-| 5m y 1m | últimos 5 y 2 días | Los rangos por defecto piden eso y no más |
-| Cálculos | las tablas ya cargadas de régimen, zscore, macro y cointegración, hasta la fecha congelada | Para que «Fuentes, fechas, parámetros y calidad de los datos» renderice con datos reales |
-| Avisos y correcciones | las filas registradas hasta la fecha congelada | La sección de avisos queda idéntica |
+1.434 diferencias repartidas por sección: índices 404, metales 358,
+cripto 254, equity 316, smallcaps 102. Las categorías **sospechadas**
+(sin confirmar aún con el detalle) son:
 
-La copia se genera **solo cuando vos lo pidas**: un comando escribe
-`test_fixtures/db_fast.db` con ese recorte y deja guardado cuándo y desde
-qué commit se hizo. De ahí en más no se toca.
+- gráficos diarios que muestran mucha más historia que los 1.100 ruedas
+  copiadas (el oro arranca en 1927; algunas ventanas de pares usan
+  1.000 ruedas además de las 500 del gráfico),
+- horario de cripto desde 2017: el recorte de 1h de 900 días dejó fuera
+  historia que algún gráfico muestra,
+- con additionally, recortes de 5m/15m quizás insuficientes para las
+  ventanas intradía de pares.
 
-## Cómo se congela la hora
+Confirmar estas categorías es lo primero al retomar: correr la paridad
+con `PARITY_OUTPUT_DIR` y agrupar los detalles por pestaña y tipo de
+elemento; luego ampliar los márgenes de `make_fast_fixture.py` (podría
+convenir copiar 1D completo y 1h completo: la copia crecería a unos
+500–600 MB y el volcado de paridad tomaría de nuevo los mismo minutos de
+hoy), regenerar y repetir paridad.
 
-El proyecto ya tiene el reloj de pruebas (`testing_clock.py`) con reloj
-monotónico y la variable `FINANCE_REGRESSION_ASOF`. Se suman dos cosas
-nuevas:
+## Qué falta antes de volver a usarla
 
-- `FINANCE_TEST_FAST_DB` — ruta de la base congelada. Si la variable no
-  está, la regresión rápida se saltea y avisa; nunca usa la base grande
-  por accidente.
-- `FINANCE_TEST_ASOF` — fecha y hora congelada que se aplica al `now` de
-  las pantallas y a las fotos. Se guarda junto con la copia para que la
-  misma copia dé siempre el mismo resultado.
+1. Categorizar las 1.434 diferencias (una corrida con
+   `PARITY_OUTPUT_DIR=/tmp/parity_diag` basta).
+2. Ampliar recortes y regenerar `test_fixtures/db_fast.db`.
+3. Paridad en 0 diferencias (escribe la marca `validado`).
+4. Correr las tres regresiones rápidas contra la copia y medir
+   tiempos reales para actualizar las cifras de este documento.
+5. `docs/pruebas.md` con las duraciones nuevas.
 
-## Qué correría contra esa base
-
-| Prueba | Hoy | Con la copia congelada |
-|---|---|---|
-| Regresión de las seis pestañas, incluida Argentina | 75 min | **~7 min** (estimado) |
-| Regresión del cambio de regla | 2 h 10 min | **~6 min** (estimado) |
-| Bloque rápido (85 tests) | 34 min | ~34 min; los tests de pantalla bajan a **~15 min** si les pasan la variable |
-| Total de regresión después de un cambio | 3 h 25 min | **~13 min** |
-
-Las duraciones nuevas son **estimaciones**: la ganancia viene de reducir las
-filas que lee cada pantalla (con la base grande, la pestaña de Índices lee
-cientos de miles de velas; con la copia, casi diez veces menos). La cifra
-exacta se confirmará con una corrida real durante la implementación; si
-alcanza con menos recorte, el recorte puede ser aún más chico.
-
-## Cómo se comprueba que da lo mismo
-
-La comprobación es una **paridad** que se corre una vez al crear la copia y
-cada vez que se vuelve a generar; no después de cada cambio:
-
-1. Se genera la copia congelada en el commit del día.
-2. Se corren las mismas pantallas dos veces, con el mismo reloj congelado:
-   una contra la copia congelada y otra contra la base grande real.
-3. Se comparan las salidas elemento por elemento, con el mismo comparador
-   que ya usan las regresiones (`test_regression.compare`).
-4. Si la comparación da cero diferencias, la copia queda **validada**: se
-   escribe una marca con el commit y el detalle del recorte. Las regresiones
-   rápidas solo corren si la marca existe; si la paridad da distinto, la
-   marca no se escribe, la regresión rápida no corre y avisa que hay que
-   regenerar la copia o revisar el recorte.
-5. El detalle del recorte queda en `test_fixtures/fixture.json` (fecha
-   congelada, commit de origen, recuento de filas por tabla), así que
-   cualquier resultado posterior se puede reproducir con la copia o
-   descartarla con evidencia.
-
-Una aclaración: la paridad se comprueba contra la base grande **de ese
-día**. La base grande sigue evolucionando en cada actualización, pero eso
-no invalida la copia congelada: lo que debe ser estable es la copia y el
-reloj, no la base grande.
-
-## Riesgos y cómo se corrigen
-
-- **Corte mal colocado:** si la fecha congelada cae en medio de una rueda o
-  sobre una vela provisional, las pestañas muestran etiquetas «provisional»
-  y la paridad marca diferencias. Corrección: la fecha se fija siempre a
-  las 05:00 UTC del día siguiente a la última rueda cerrada.
-- **Recorte que deja historia insuficiente:** si la copia pierde primeras
-  velas que la ventana del régimen pide, activos quedarían «Historia
-  insuficiente» y la paridad marcaría diferencia. Corrección: el recorte de
-  1D se hace por ruedas (se copian las últimas 290 de cada activo: 30 de la
-  ventana de lectura más 260 de cola), no por fecha.
-- **Las 4h versionadas:** la serie de 4h guarda su versión y su historia de
-  actualizaciones; el recorte se hace después de copiar ese registro
-  completo, así la etiqueta «4h versionada» queda igual en ambas bases.
-- **Equivocarse de base:** el riesgo mayor de una copia de prueba es
-  apuntarla a la base real por error. Mitigación: la carpeta
-  `test_fixtures/` queda separada de `data/` y la regresión rápida se
-  rechaza si `FINANCE_TEST_FAST_DB` apunta al archivo `data/finance.db`.
-
-## Comando previsto (cuando esté implementado)
+## Comandos previstos (para el día en que se retome)
 
 ```bash
-# generar la copia congelada (una vez, o cuando la paridad la pida)
-OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
-  caffeinate -i .venv/bin/python make_fast_fixture.py
+# regenerar la copia (reemplaza db_fast.db y fixture.json salvo la marca)
+OPENBLAS_NUM_THREADS=1 .venv/bin/python make_fast_fixture.py --forzar
 
-# comprobación de paridad (solo al crear o regenerar la copia)
+# paridad (escribe la marca si da 0 diferencias; guarda volcados)
+PARITY_OUTPUT_DIR=/tmp/parity_diag \
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
-  caffeinate -i .venv/bin/python -B -m unittest test_fast_fixture
+  .venv/bin/python -B -m unittest test_fast_fixture
 
-# regresión rápida de todos los días, equivalente a las dos regresiones
-# largas de la suite en un cuarto de hora:
+# las tres regresiones rápidas (se saltean sin la variable de la copia)
 FINANCE_TEST_FAST_DB="$PWD/test_fixtures/db_fast.db" \
-FINANCE_TEST_ASOF="$(.venv/bin/python -c 'import json; print(json.load(open("test_fixtures/fixture.json"))["asof"])')" \
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
-  caffeinate -i .venv/bin/python -B -m unittest test_rule_regression test_argentina_regression
+  .venv/bin/python -B -m unittest test_rule_regression test_smallcaps_regression test_argentina_regression
 ```
+
+La carpeta `test_fixtures/` está ignorada por git (los 294 MB nunca
+suben al repositorio); los volcados de diagnóstico viven en /tmp y
+tampoco forman parte del repo.

@@ -35,3 +35,6 @@ Desktop.ini
 .vscode/
 .idea/
 *.code-workspace
+
+# ── Copia congelada de pruebas (nunca al repositorio: cientos de MB) ──
+test_fixtures/

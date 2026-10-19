@@ -45,8 +45,11 @@ def section_indicators(conn, section, assets, pilot, now, calc_config=None, pair
     for symbol in assets:
         session = session_for(pilot, symbol)
         for tf in (["1m", "5m", "15m", "1h", "4h", "1D"] if crypto or regular else ["1D"]):
+            params = (symbol, "5m" if regular and session is None and tf == "1h" else tf)
+            if regular and session is not None and tf == "4h":
+                params = (symbol, "1h")  # La 4h de sesión se arma desde las horarias.
             raw = pd.read_sql_query("SELECT * FROM candles WHERE symbol=? AND timeframe=? ORDER BY timestamp",
-                                    conn, params=(symbol, "5m" if regular and session is None and tf == "1h" else tf))
+                                    conn, params=params)
             if crypto:
                 raw, info = select_exchange(raw, pilot["exchanges"][symbol])
                 exchange_sources.setdefault(symbol, {})[tf] = info

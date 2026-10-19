@@ -104,6 +104,40 @@ def median_reading(history, window=50, change_sessions=5):
             "last_session": str(history.index[-1]), "sessions": len(history)}
 
 
+def thin_liquidity(bars, flat_streak=3, volume_share=0.3, window=20, key="session"):
+    """Marca de acción local poco líquida: cierres sin cambios varias ruedas
+    seguidas o volumen escaso contra la mediana de las ruedas previas.
+
+    Devuelve un diccionario con la marca y el motivo redactado, o ``None``
+    cuando el activo no tiene historia suficiente.
+    """
+    reasons = []
+    if bars.empty:
+        return {"thin": False, "reason": None}
+    ordered = bars.sort_values(key) if key in bars else bars
+    closes = ordered.close.dropna()
+    streak = 0
+    for delta in closes.diff().iloc[:0:-1]:
+        if delta == 0:
+            streak += 1
+        else:
+            break
+    if streak + 1 >= flat_streak:
+        reasons.append(f"cierre sin cambios en {streak + 1} ruedas seguidas")
+    volume = ordered.volume.dropna() if "volume" in ordered else None
+    share = None
+    if volume is not None and len(volume) > window:
+        reference = float(volume.iloc[-(window + 1):-1].median())
+        last = float(volume.iloc[-1])
+        if reference > 0:
+            share = last / reference
+            if share < volume_share:
+                reasons.append(f"volumen {share:.0%} de la mediana de {window} ruedas")
+    if not reasons:
+        return {"thin": False, "reason": None, "flat_streak": streak + 1, "volume_share": share}
+    return {"thin": True, "reason": "; ".join(reasons), "flat_streak": streak + 1, "volume_share": share}
+
+
 def dispersion(companies, threshold_pct, symbols=None, yellow_pct=None):
     """Desvío de cada empresa contra la mediana de ese mismo día.
 
@@ -188,10 +222,23 @@ def argentina_indicators(frames, rows, pilot, pares, equivalencias, now, intrada
     companies = companies.dropna(how="all")
     threshold = pilot.get("dispersion_threshold_pct", 5.0)
     yellow = pilot.get("dispersion_yellow_pct", max(threshold / 2.0, 0.5))
+    rows_out = dispersion(companies, threshold, {pair["nombre"]: pair["local"] for pair in pares}, yellow)
+    flags = {}
+    for pair in pares:
+        bars = frames.get((pair["local"], "1D"))
+        if bars is not None:
+            flags[pair["nombre"]] = thin_liquidity(
+                bars, pilot.get("thin_liquidity_flat_streak", 3),
+                pilot.get("thin_liquidity_volume_share", 0.3), pilot.get("thin_liquidity_window", 20))
+    for row in rows_out:
+        flag = flags.get(row["company"])
+        if flag:
+            row["thin"] = flag["thin"]
+            row["thin_reason"] = flag["reason"]
     local_rows = [row for row in rows if row["symbol"] in local_assets]
     stretched_rows = [row for row in local_rows if row["distance_std"] is not None]
     return {
-        "ccl_by_company": dispersion(companies, threshold, {pair["nombre"]: pair["local"] for pair in pares}, yellow),
+        "ccl_by_company": rows_out,
         "dispersion_reference": dispersion_reference(companies, pilot.get("dispersion_window", 126), threshold, yellow),
         "dispersion_window": pilot.get("dispersion_window", 126),
         "dispersion_yellow_pct": yellow,

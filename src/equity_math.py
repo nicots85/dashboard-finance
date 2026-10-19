@@ -34,9 +34,10 @@ def regular_stock_bars(raw, symbol, tf, now, session=None):
         return aggregate_regular_hours(bars, now) if tf == "1h" else bars
     from src.argentina_math import session_four_hour
     if tf == "4h":
-        # La 4h de sesión se arma desde la escala menor: nunca se usa la del
-        # proveedor, que no respeta la apertura ni el cierre del mercado.
-        return session_four_hour(prepare_bars(raw, symbol, "15m", session["calendar"], now), session, now)
+        # La 4h de sesión se arma desde las velas horarias de la propia
+        # sesión (dos años de historia); nunca se usa la del proveedor,
+        # que no respeta la apertura ni el cierre del mercado.
+        return session_four_hour(prepare_bars(raw, symbol, "1h", session["calendar"], now), session, now)
     base = "5m" if tf == "1h" else tf
     bars = prepare_bars(raw, symbol, base, session["calendar"], now)
     return aggregate_regular_hours(bars, now, session["calendar"]) if tf == "1h" else bars

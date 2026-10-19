@@ -403,6 +403,9 @@ argentina:
   ccl_change_sessions: 5
   dispersion_yellow_pct: 1.0
   dispersion_threshold_pct: 2.0
+  thin_liquidity_flat_streak: 3
+  thin_liquidity_volume_share: 0.3
+  thin_liquidity_window: 20
   notices:
     - "Acciones locales en pesos: sesión BYMA 11:00–17:00 de Buenos Aires, sin premercado. Cada VWAP usa precio y volumen de la misma acción. La 4h de sesión se construye dentro de BYMA en 11:00–15:00 y 15:00–17:00; la segunda puede ser más corta."
     - "Los ADR cotizan en Nueva York 09:30–16:00 y su 4h de sesión se construye en 09:30–13:30 y 13:30–16:00."

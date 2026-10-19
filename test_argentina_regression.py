@@ -6,10 +6,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import pandas as pd
 
-from src.data.backup import ROOT, snapshot_database
-from src.data.db_manager import DEFAULT_DB_PATH
+from src.data.backup import ROOT
+from testing_frozen import frozen_state
 from test_regression import compare
 
 BASELINE = "676a14a"
@@ -65,16 +64,16 @@ def assert_unchanged(reports):
 
 class SmallcapsRegression(unittest.TestCase):
     def test_five_previous_tabs_are_identical(self):
+        db, asof = frozen_state()
+        if db is None:
+            raise unittest.SkipTest("FINANCE_TEST_FAST_DB sin definir: la regresión rápida se saltea y nunca usa la base grande por accidente")
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
-            db = folder / "same.db"
-            snapshot_database(DEFAULT_DB_PATH, str(db))
             old = folder / "before_argentina"
             subprocess.run(["git", "worktree", "add", "--detach", str(old), BASELINE], cwd=ROOT, check=True, capture_output=True)
             try:
-                asof = pd.Timestamp.now(tz="UTC").isoformat()
                 env = dict(os.environ, FINANCE_DB_PATH=str(db), FINANCE_REGRESSION_ASOF=asof, OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1")
-                print("Corte compartido de regresión: " + asof, flush=True)
+                print("Regresión rápida contra `" + str(db) + "` con corte " + asof, flush=True)
                 dumps = {}
                 for label, repo in (("before", old), ("after", ROOT)):
                     output = folder / (label + ".json")

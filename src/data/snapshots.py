@@ -247,16 +247,30 @@ def argentina_ccl(conn, now=None):
     companies = pd.DataFrame(series).sort_index().dropna(how="all")
     if companies.empty:
         return {"median": None, "companies": 0}
-    from src.argentina_math import dispersion, dispersion_reference, median_reading
+    from src.argentina_math import dispersion, dispersion_reference, median_reading, thin_liquidity
     cls_cfg = yaml.safe_load((ROOT / "config/sections.yaml").read_text())["argentina"]
     threshold = cls_cfg.get("dispersion_threshold_pct", 2.0)
     yellow = cls_cfg.get("dispersion_yellow_pct", max(threshold / 2.0, 0.5))
     median = median_reading(companies.median(axis=1).dropna())
+    marques = {}
+    for pair in cfg["pares"]:
+        if not equivalences.get(pair["adr"]):
+            continue
+        daily = pd.read_sql_query("SELECT timestamp,close,volume FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp", conn, params=(pair["local"],))
+        if daily.empty:
+            continue
+        diario = (daily.assign(session=pd.to_datetime(daily.timestamp, utc=True).dt.date.astype(str))
+                  .groupby("session").agg(close=("close", "last"), volume=("volume", "sum")).reset_index())
+        marques[pair["nombre"]] = thin_liquidity(
+            diario, cls_cfg.get("thin_liquidity_flat_streak", 3), cls_cfg.get("thin_liquidity_volume_share", 0.3),
+            cls_cfg.get("thin_liquidity_window", 20))
     return {"median": median["median"], "change_5": median["change_5"], "distance_std": median["distance_std"],
             "last_session": median["last_session"], "sessions": median["sessions"],
             "companies": len(companies.columns),
             "by_company": {row["company"]: {"ccl": row["ccl"], "vs_median_pct": row["vs_median_pct"],
-                                            "highlight": row["highlight"], "alert": row["alert"]}
+                                            "highlight": row["highlight"], "alert": row["alert"],
+                                            "thin": (marques.get(row["company"]) or {}).get("thin", False),
+                                            "thin_reason": (marques.get(row["company"]) or {}).get("reason")}
                            for row in dispersion(companies, threshold, yellow_pct=yellow)},
             "dispersion_threshold_pct": threshold,
             "dispersion_yellow_pct": yellow,

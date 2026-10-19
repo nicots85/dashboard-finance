@@ -80,7 +80,7 @@ def view_model(db_path, signature, settings_json, _minute, section="indices"):
                     "Velas guardadas": stored[0], "Dirección": "sin datos"})
                 continue
             if regular and session and tf == "4h":
-                base_tf = "15m"  # La 4h de sesión se arma desde la escala menor.
+                base_tf = "1h"  # La 4h de sesión se arma desde las horarias.
             elif regular and session is None and tf == "1h":
                 base_tf = "5m"
             else:
@@ -322,7 +322,8 @@ def render_argentina_summary(pilot, model):
     for row in k["ccl_by_company"]:
         records.append({"Empresa": asset_label(row["local"]) if row.get("local") else row["company"], "CCL implícito": row["ccl"],
                         "% vs mediana": row["vs_median_pct"],
-                        "Estado": "Se aleja de la mediana" if row["highlight"] else "Dentro del umbral"})
+                        "Estado": "Se aleja de la mediana" if row["highlight"] else "Dentro del umbral",
+                        "Liquidez": "poco líquida" if row.get("thin") else "normal"})
     table = pd.DataFrame(records)
     threshold = k["dispersion_threshold_pct"]
     yellow = k.get("dispersion_yellow_pct", threshold)
@@ -340,6 +341,7 @@ def render_argentina_summary(pilot, model):
                      "CCL implícito": st.column_config.Column(help="Precio local en pesos multiplicado por las acciones del certificado y dividido por el precio del ADR, en la misma fecha."),
                      "% vs mediana": st.column_config.Column(help=f"Desvío de esa empresa contra la mediana de las cinco. Amarillo si supera {yellow:.0g}% y naranja si supera el umbral de {threshold:.0g}%."),
                      "Estado": st.column_config.Column(help="Solo describe separación entre empresas; no indica calidad ni precio justo."),
+                     "Liquidez": st.column_config.Column(help="Poco líquida: cierre sin cambios varias ruedas seguidas o volumen por debajo de la parte configurable de su mediana de veinte ruedas. La dispersión de una acción poco líquida puede reflejar falta de negociación, no un precio cierto."),
                      "_index": st.column_config.Column(help=help_text("fila"))})
     reference = k["dispersion_reference"]
     if reference.get("sessions"):
@@ -347,6 +349,10 @@ def render_argentina_summary(pilot, model):
                   f" ({reference['above_threshold_share']:.1f}%)"
                   + (f" y amarillo desde {yellow:.0g}% en {reference['above_yellow']} ({reference['above_yellow_share']:.1f}%)"
                      if reference.get("above_yellow") is not None else ""))
+        delgadas = [row for row in k["ccl_by_company"] if row.get("alert") and row.get("thin")]
+        if delgadas:
+            nombres = ", ".join(asset_label(r["local"]) if r.get("local") else r["company"] for r in delgadas)
+            counts += f" La empresa señalada, {nombres}, es una acción poco líquida ({delgadas[0].get('thin_reason')}); su dispersión puede reflejar poca negociación."
         st.caption(f"Dispersión real de las últimas {reference['sessions']} sesiones (cinco empresas por sesión): "
                    f"mediana {reference['median']:.2f}%, percentil 90 {reference['p90']:.2f}%, percentil 95 {reference['p95']:.2f}%, "
                    f"percentil 99 {reference['p99']:.2f}%, máximo {reference['max']:.2f}%. Se superó el nivel " + counts + ".")
@@ -469,9 +475,9 @@ def render_detail(db_path, signature, pilot, ops, frames, section="indices"):
         base_tf = "5m" if tf == "1h" else tf
         session_spec = session_for(pilot, reference)
         if session_spec and tf == "4h":
-            data = regular_stock_bars(raw_data(db_path, reference, "15m", signature), reference, tf, now, session_spec)
+            data = regular_stock_bars(raw_data(db_path, reference, "1h", signature), reference, tf, now, session_spec)
             st.caption(pilot_asset_label(pilot, reference, tf) + " · " + session_spec["four_hour_label"] +
-                       " · construida desde velas de quince minutos de la misma sesión; la segunda puede ser más corta.")
+                       " · construida desde velas horarias de la propia sesión, que empiezan en punto; la segunda puede ser más corta.")
             enough, required = sufficient_history(data[data.closed], configs(section)[1])
             if not enough:
                 st.warning(f"Historia insuficiente en 4h de sesión: se requieren {required} velas.")

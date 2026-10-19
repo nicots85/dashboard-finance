@@ -675,9 +675,17 @@ def render_historial():
             return
         if not photos:
             st.info("Todavía no hay fotos. Se crean al actualizar datos manualmente o con la copia diaria programada.")
+            now = pd.Timestamp.now(tz="UTC")
+            st.markdown(":red[Última foto: ninguna registrada; hoy no hay foto.]")
             return
-        view = st.radio("Ver", ["Hoy", "Ayer", "Semana pasada", "Elegir foto"], horizontal=True, key="hist_view")
         now = pd.Timestamp.now(tz="UTC")
+        latest = pd.to_datetime(photos[0]["created_at"], utc=True)
+        horas = (now - latest).total_seconds() / 3600
+        hay_hoy = str(photos[0]["created_at"])[:10] == str(now.date())
+        estado = "hoy hay foto" if hay_hoy else "hoy no hay foto"
+        detalle = f"Última foto: {latest.strftime('%Y-%m-%d %H:%M UTC')} · {estado}."
+        st.markdown(f":red[{detalle} Pasaron {horas:.0f} horas sin foto.]" if horas > 36 else detalle)
+        view = st.radio("Ver", ["Hoy", "Ayer", "Semana pasada", "Elegir foto"], horizontal=True, key="hist_view")
         if view == "Hoy":
             chosen = [p for p in photos if str(p["created_at"])[:10] == str(now.date())]
         elif view == "Ayer":
