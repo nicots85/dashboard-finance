@@ -183,6 +183,10 @@ secciones a esa hora. Para verlas:
 3. El botón de **diferencia con la foto anterior** marca qué cambió
    entre dos corridas seguidas.
 
+Al abrir el Historial, arriba muestra **«Última foto: fecha y hora · hoy
+hay/no hay foto»**. Queda en rojo cuando pasaron más de 36 horas sin
+foto: es la señal para revisar si la copia diaria se está corriendo.
+
 Las fotos se guardan dentro de la base (`data/finance.db`), así que se
 incluyen en las copias de seguridad y viajan a la PC con el respaldo.
 

@@ -18,6 +18,9 @@ class SnapshotTests(unittest.TestCase):
         self.db = str(Path(self.tmp.name) / "t.db")
         from src.data.backup import snapshot_database
         snapshot_database(DEFAULT_DB_PATH, self.db)
+        # La base real ya tiene fotos (daily_run): los conteos de acá son
+        # relativos a lo que trae la copia, no absolutos.
+        self.previas = len(list_photos(self.db))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -25,7 +28,7 @@ class SnapshotTests(unittest.TestCase):
     def test_take_and_read_back(self):
         pid = take_snapshot(self.db, trigger="manual_full", status="ok")
         photos = list_photos(self.db)
-        self.assertEqual(len(photos), 1)
+        self.assertEqual(len(photos), self.previas + 1)
         p = get_photo(pid, self.db)
         self.assertIn("sections", p["content"])
         self.assertEqual(p["content"]["schema_version"], SCHEMA_VERSION)
@@ -58,8 +61,8 @@ class SnapshotTests(unittest.TestCase):
         data = export_photos(self.db)
         result = import_photos(data, self.db)
         self.assertEqual(result["added"], 0)
-        self.assertEqual(result["skipped_duplicates"], 1)
-        self.assertEqual(len(list_photos(self.db)), 1)
+        self.assertEqual(result["skipped_duplicates"], self.previas + 1)
+        self.assertEqual(len(list_photos(self.db)), self.previas + 1)
 
     def test_import_distinct_content_kept_with_new_id(self):
         pid = take_snapshot(self.db, trigger="manual_full")
@@ -75,7 +78,7 @@ class SnapshotTests(unittest.TestCase):
         result = import_photos(out.getvalue(), self.db)
         self.assertEqual(result["added"], 1)
         self.assertEqual(result["kept_distinct"], 1)
-        self.assertEqual(len(list_photos(self.db)), 2)
+        self.assertEqual(len(list_photos(self.db)), self.previas + 2)
 
     def test_opening_app_does_not_create_photo(self):
         before = len(list_photos(DEFAULT_DB_PATH))

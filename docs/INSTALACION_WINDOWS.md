@@ -10,15 +10,32 @@ acumulado no se puede volver a pedir al proveedor.
 
 ## Qué vas a necesitar
 
-| Elemento | De dónde | Peso aprox. |
+| Elemento | De dónde | Peso |
 |---|---|---|
-| La última copia de seguridad | Mac: carpeta del proyecto → `backups/daily/` | ~100 MB |
-| La carpeta del proyecto completa | Mac: `Documents/productos ia/Dashboard Financiero` (sin `data/`) | ~50 MB (texto) |
+| La última copia de seguridad (`backups/daily/finance_…zip`) | Mac | **~123 MB** (el 19/10/2026: 123.359.815 bytes; crece con los datos) |
+| La carpeta del proyecto completa | Mac: `Documents/productos ia/Dashboard Financiero` (sin `data/`) | ~7 MB |
 | Python 3.13 para Windows | python.org/downloads | ~30 MB |
+| Git para Windows (solo si vas a correr las pruebas) | git-scm.com | ~60 MB |
 | Internet | — | para instalar paquetes |
 
 Todo lo demás (historial de velas, fotos, avisos, versiones) viaja
-**dentro** del archivo de copia de seguridad.
+**dentro** del archivo zip. El pendrive o la carpeta en la nube
+necesitan ~200 MB libres.
+
+## Cómo llevás el ZIP de la Mac a la PC (dos caminos)
+
+**Camino A — pendrive o disco externo:** en Finder, copiá el archivo
+`backups/daily/finance_…zip` (el de fecha más nueva) al pendrive.
+Con ~123 MB no hace falta formatear: cualquier pendrive sirve. Al
+terminar de copiar, expulsá con seguridad.
+
+**Camino B — carpeta en la nube:** arrastrá el zip a tu carpeta de
+Google Drive, Dropbox o OneDrive en la Mac, esperá a que suba del todo
+(con 123 MB son unos minutos), y en la PC descargalo desde la misma
+carpeta en la nube. Descargalo **a la PC**, no lo abras desde la nube.
+
+En ambos casos el zip queda como archivo suelto; después lo pondrás en
+su lugar dentro del proyecto.
 
 ---
 
@@ -26,32 +43,44 @@ Todo lo demás (historial de velas, fotos, avisos, versiones) viaja
 
 1. Copiá la carpeta del proyecto a un pendrive o disco externo,
    **excluyendo la carpeta `data/`** y la carpeta `backups/` (viajan por
-   separado en el paso 2). La forma sencilla: en Finder, copiá la
-   carpeta; después borrá de la copia las carpetas `data`, `backups` y
+   separado). La forma sencilla: en Finder, copiá la carpeta; después
+   borrá de la copia las carpetas `data`, `backups`, `test_fixtures` y
    `.venv` (esa última es específica de Mac y no funciona en Windows:
    en Windows se vuelve a crear).
 2. Copiá también **el archivo más nuevo** de `backups/daily/`
-   (empieza con `finance_2026…zip`). Ese archivo es la base completa.
+   (empieza con `finance_2026…zip`).
 3. Sacá el pendrive con eso: la carpeta del proyecto (sin `data`,
-   `backups`, `.venv`) y el archivo zip al lado.
+   `backups`, `test_fixtures`, `.venv`) y el archivo zip al lado.
 
-## Paso 2 — En la PC: instalar Python y preparar la carpeta
+> Si preferís la nube para todo: comprimí la carpeta del proyecto en un
+> zip (clic derecho → Comprimir) y subí **los dos zips**: el del
+> proyecto y el de la base. En la PC los descargás y descomprimís el
+> del proyecto.
 
-1. Conectá el pendrive y copiá la **carpeta del proyecto** a
+## Paso 2 — En la PC: instalar Python y (opcional) Git
+
+1. Conectá el pendrive o descargá de la nube y copiá la **carpeta del
+   proyecto** a
    `C:\Users\TuUsuario\Documents\productos ia\Dashboard Financiero`
    (misma ruta relativa que en la Mac para que los comandos encajen).
 2. Dentro de esa carpeta, creá la carpeta `backups` y, dentro de ella,
    otra llamada `daily`. Copiá ahí el archivo zip que trajiste.
-3. Instalá Python desde python.org/downloads (versión 3.13). Durante la
-   instalación, marcá la casilla **"Add python.exe to PATH"** (es la
+3. Instalá Python desde python.org/downloads (versión **3.13**). Durante
+   la instalación, marcá la casilla **"Add python.exe to PATH"** (es la
    única casilla que importa).
-4. Abrí **PowerShell** y verificá que Python quedó instalado:
+4. (Solo si vas a correr las pruebas) Instalá Git desde git-scm.com:
+   "Download for Windows". Las opciones por defecto están bien; marcá
+   "Add Git to PATH".
+5. Abrí **PowerShell** y verificá los dos:
 
 ```powershell
 python --version
+git --version
 ```
 
-   Debe responder algo como `Python 3.13.x`.
+   Python debe responder algo como `Python 3.13.x`. Git, `git version
+   2.x.y`. Si uno de los dos dice "no se reconoce", leé "Si algo falla"
+   del paso 2 más abajo.
 
 ## Paso 3 — En la PC: crear el entorno e instalar la app
 
@@ -64,16 +93,9 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-La tercera línea (pip) tarda **entre 3 y 10 minutos** porque baja las
-librerías. Si PowerShell frena la segunda línea con "scripts
-deshabilitados", corré antes:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-y volvé a intentarlo. (Es una política del propio PowerShell, no de la
-app.)
+La cuarta línea (pip) tarda **entre 3 y 10 minutos** porque baja las
+librerías. Cuando termina, el texto de la línea empieza con
+`(.venv)`, señal de que el entorno está activo.
 
 ## Paso 4 — En la PC: configurar la clave de datos
 
@@ -98,10 +120,10 @@ sacarla después.
 python restore_data.py --ultimo --destino data\finance.db
 ```
 
-   `--ultimo` elige automáticamente la copia más nueva de `backups/daily`.
+   `--ultimo` elige automáticamente la copia más nueva de `backups\daily`.
    Cuando termina muestra un detalle con el tamaño y la fecha del último
-   dato. Si algo falla, verifica primero que el zip esté en
-   `backups\daily\`.
+   dato. Si algo falla, revisá que el zip esté en `backups\daily\` con su
+   **nombre original** (no lo renombres a mano).
 
 2. Verificá que la base quedó bien:
 
@@ -129,7 +151,9 @@ streamlit run app/main.py
 2. **La app abre todas las pestañas** (Índices, Metales, Cripto,
    Equity, Small caps, Argentina) sin mensajes de error.
 3. **La foto se puede leer:** en la app, bajá al Historial y confirmá
-   que la última foto que tomó la Mac sigue ahí, con su fecha.
+   que la última foto que tomó la Mac sigue ahí, con su fecha (el
+   historial muestra «Última foto: …»; la fecha debe ser la misma que
+   en la Mac).
 
 Si todo eso coincide, la instalación en Windows quedó lista.
 
@@ -144,20 +168,75 @@ python daily_run.py --hora 21:15
 ```
 
 Igual que en la Mac, eso hace respaldo, descarga, cálculos y foto. La
-computadora conecta las notas internas para que después puedas decidir
-si te resulta cómoda la programación.
+tarea programada se puede activar después, cuando decidas si te resulta
+cómoda la programación.
 
 ---
 
-## Problemas comunes en Windows
+## Si algo falla (paso por paso)
 
-1. **"Script deshabilitado" al activar el entorno:** la solución del
-   paso 3 (Set-ExecutionPolicy RemoteSigned en CurrentUser).
-2. **"python no se reconoce":** Python quedó sin la casilla "Add to
-   PATH". Reinstalá marcando esa casilla.
-3. **La app abre pero dice "no database file":** la restauración del
-   paso 5 no corrió o el zip está en otra carpeta; revisá la ruta
-   exacta de `backups\daily\`.
-4. **El archivo zip no abre:** la herramienta de restauración verifica
-   la integridad y avisa el motivo; no lo renombres a mano: usa el
-   comando del paso 5 con el nombre original y ruta con comillas.
+**Paso 2 — `python --version` no responde ("no se reconoce"):**
+Python quedó sin la casilla "Add python.exe to PATH". Reinstalá
+marcándola, o agregá a mano el directorio de Python al PATH. Cerrá
+PowerShell y abrí uno nuevo para que tome el cambio.
+
+**Paso 2 — `git --version` no responde:** si no pensás correr las
+pruebas, ignoralo (Git no es necesario para usar la app). Si pensás
+correrlas: reinstalá Git marcando "Add Git to PATH" y reabrí PowerShell.
+
+**Paso 3 — "el script está deshabilitado" al activar el entorno:**
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+y volvé a intentar. Es una política del propio PowerShell, no de la app.
+
+**Paso 3 — `pip install` se corta a la mitad:** casi siempre red
+inestable. Corré de nuevo la misma línea; pip retoma lo que falta. Si
+sigue fallando, probá con cable o más cerca del router.
+
+**Paso 3 — "no such file: requirements.txt":** no estás en la carpeta del
+proyecto. Corré primero `cd` con la ruta exacta, con comillas porque la
+ruta tiene espacios.
+
+**Paso 5 — "no se encontró la copia":** el zip no está en
+`backups\daily\`, o está renombrado. Tiene que llamarse
+`finance_…zip` tal como viene de la Mac.
+
+**Paso 5 — el zip no abre / "dañado":** la herramienta de restauración
+verifica la integridad y avisa el motivo. Volvé a copiar el zip desde el
+pendrive o re-descargalo de la nube (una transferencia interrumpida deja
+el archivo incompleto). No lo descomprimí ni lo renombres a mano.
+
+**Paso 5 — la base quedó con menos datos que la Mac:** comprobá que en
+la Mac hayas usado el zip más nuevo; si la PC quedó con una copia vieja,
+corré de nuevo `python restore_data.py --ultimo --destino
+data\finance.db` con el zip correcto.
+
+**Paso 6 — "streamlit no se reconoce":** el entorno no está activado;
+corré `.venv\Scripts\Activate.ps1` y volvé a intentar.
+
+**Paso 6 — el navegador no abre solo:** Streamlit imprime una dirección
+local (típicamente `http://localhost:8501`); abrila a mano en el
+navegador. La primera vez Windows puede preguntar por el cortafuegos:
+aceptá para redes privadas.
+
+**Paso 6 — la app abre pero dice "no database file":** la restauración
+del paso 5 no corrió; revisá la ruta exacta de `backups\daily\` y
+repetí el paso 5.
+
+**Paso 6 — las pestañas abren pero algún gráfico dice "Historia
+insuficiente":** anotá qué activo y qué temporalidad; compará con la
+Mac. Si solo pasa en la PC, volvé a restaurar (paso 5) y reportá la
+diferencia antes de seguir.
+
+## Verificación final en una sola mirada
+
+| Comprobación | ¿Cómo se ve bien? |
+|---|---|
+| `python --version` | `Python 3.13.x` |
+| `git --version` | `git version 2.x` (opcional) |
+| `check_data.py` | termina sin errores graves, últimos precios de control con fecha igual a la Mac |
+| App (seis pestañas) | ninguna pestaña muestra error; los precios coinciden con la Mac |
+| Historial | «Última foto: …» con la fecha de la última foto tomada en la Mac |

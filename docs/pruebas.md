@@ -34,10 +34,10 @@ más de una hora. Medido en esta máquina:
 
 | Bloque | Pruebas | Duración medida |
 | --- | ---: | ---: |
-| Rápido (C0, C1, C2, C3, 4h, fotos, bloques, binomial, auditoría, calendarios) | 85 | 34 min |
+| Rápido (C0, C1, C2, C3, 4h, fotos, bloques, binomial, calendarios) | 86 | 23 min (19/10/2026) |
 | Sintéticas | 5 | menos de 1 min |
 | Pantalla: 4h app, Metales, Cripto, Equity, Small caps, Argentina | 26 | ~1 h 50 min |
-| Argentina (AppTest de las seis pestañas y foto) | 7 de las 26 anteriores | 18 min |
+| Argentina (AppTest de las seis pestañas y foto) | 7 de las 26 anteriores | 8,6 min (19/10/2026) |
 | Regresión histórica de Equity | 1 | 32 min |
 | Regresión de ajustes de Cripto | 1 | 32 min |
 | Regresión de la regla binomial | 1 | 2 h 10 min |
@@ -47,6 +47,12 @@ más de una hora. Medido en esta máquina:
 Total estimado de punta a punta: **más de ocho horas**. Por eso el bloque
 rápido se puede repetir seguido, y las regresiones largas se lanzan por
 separado.
+
+Las tres regresiones de pestañas (regla binomial, small caps y Argentina)
+están integradas a la **copia congelada de pruebas** pero su
+implementación quedó en pausa (la primera paridad dio 1.434 diferencias):
+sin la variable `FINANCE_TEST_FAST_DB` se saltean, y la propuesta completa
+con el diagnóstico pendiente está en `docs/pruebas_rapidas_propuesta.md`.
 
 ## Bloques recomendados
 
