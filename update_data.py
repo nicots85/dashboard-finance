@@ -319,7 +319,7 @@ def main():
 
         sec_cfg = config[sec]
         fuente = sec_cfg.get("fuente")
-        activos = sec_cfg.get("activos", [])
+        activos = sec_cfg.get("activos", []) + sec_cfg.get("complementos", [])
 
         print(f"\n📂 Procesando sección: [{sec.upper()}] ({len(activos)} activos vía {fuente})...")
 

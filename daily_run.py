@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Respaldo + descarga + cálculos + foto real, con hora de Buenos Aires y recuperación tardía."""
 import argparse
+import re
 import sqlite3
 import subprocess
 import sys
@@ -24,6 +25,22 @@ def timing(now, activated_at=None, hour=21, minute=15, zone="America/Argentina/B
     due = latest_due(now, hour, minute, zone)
     active = activated_at is None or due.astimezone(timezone.utc) >= activated_at.astimezone(timezone.utc)
     return due, active, now.astimezone(timezone.utc) > due.astimezone(timezone.utc) + timedelta(minutes=30)
+
+
+def clasificar(result, paso):
+    """Separa errores reales de notas conocidas por la salida del paso.
+
+    run_calc sale con código 1 y sin volcar cuando solo hay avisos de datos
+    insuficientes; eso es una nota conocida, no un fallo del panel.
+    """
+    if result.returncode == 0:
+        return None, None
+    salida = (result.stdout or "") + (result.stderr or "")
+    if paso == "run_calc" and "requieren atención" in (result.stdout or "") and "Traceback" not in salida:
+        coincidencia = re.search(r"(\d+)\s+resultados? requieren", result.stdout)
+        cuenta = f"{coincidencia.group(1)} " if coincidencia else ""
+        return None, f"{paso}: {cuenta}datos con avisos conocidos (código 1); revisar los avisos en el panel"
+    return f"{paso}: código {result.returncode}", None
 
 
 def main():
@@ -54,24 +71,31 @@ def main():
             if old and (old[2] or old[1] != "running" or now - datetime.fromisoformat(old[0]) < timedelta(hours=6)):
                 return 0
             conn.execute("INSERT OR REPLACE INTO daily_due_runs VALUES (?,?,?,NULL)", (due_key, now.isoformat(), "running"))
-    errors = []
+    errors, notas = [], []
     steps = [
         [sys.executable, str(ROOT / "backup_data.py"), "--db", args.db],
         [sys.executable, str(ROOT / "update_data.py"), "--db", args.db],
         [sys.executable, str(ROOT / "run_calc.py"), "--db", args.db],
     ]
     for cmd in steps:
+        paso = Path(cmd[1]).stem
         result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
-        if result.returncode:
-            errors.append(f"{Path(cmd[1]).name}: código {result.returncode}")
-            if Path(cmd[1]).name == "backup_data.py":
-                break  # no descargar si la copia previa falló
-    status = "ok" if not errors else "partial"
+        error, nota = clasificar(result, paso)
+        if error:
+            errors.append(error)
+        if nota:
+            notas.append(nota)
+        if error and Path(cmd[1]).name == "backup_data.py":
+            break  # no descargar si la copia previa falló
+    status = "partial" if errors else ("completa (con notas)" if notas else "ok")
     try:
         # La marca describe la hora real de la foto, también si la descarga tardó.
         late = datetime.now(timezone.utc) > due.astimezone(timezone.utc) + timedelta(minutes=30)
-        photo = take_snapshot(args.db, trigger="daily", status=status, errors=errors, late=late if args.scheduled else False)
+        photo = take_snapshot(args.db, trigger="daily", status=status, errors=errors, notas=notas, late=late if args.scheduled else False)
         print(f"Foto tomada realmente ahora: {photo} · {status} · tardía {late if args.scheduled else False}")
+        if notas:
+            for nota in notas:
+                print(f"Nota conocida: {nota}")
         if args.scheduled:
             with sqlite3.connect(args.db) as conn:
                 conn.execute("UPDATE daily_due_runs SET status=?,photo_id=? WHERE due_utc=?", (status, photo, due_key))

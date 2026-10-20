@@ -732,6 +732,8 @@ def render_historial():
         c4.metric("Máquina", photo["machine"])
         if photo["errors"]:
             st.error("Errores de esa actualización: " + "; ".join(photo["errors"]))
+        if photo.get("notes"):
+            st.warning("Notas conocidas de esa actualización: " + "; ".join(photo["notes"]))
         st.caption(f"Temporalidades incluidas: {', '.join(json.loads(photo['tfs_scope']))}. Si fue rápida, faltan 1m, 5m, 15m y 4h en esa foto.")
         sections = photo["content"]["sections"]
         idx = sections.get("indices", {})

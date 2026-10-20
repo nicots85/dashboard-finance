@@ -119,7 +119,9 @@ class FourHourTests(unittest.TestCase):
         payload = json.dumps({"schema_version":1,"sections":{}})
         with sqlite3.connect(self.path) as conn:
             ensure_table(conn)
-            conn.execute("INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)", ("old","2026-10-01T00:00:00Z","Mac","daily","ok",0,"v1","hash","[]","[]",payload))
+            conn.execute("""INSERT INTO snapshot_photos
+                (id, created_at, machine, trigger, status, late, app_version, params_hash, tfs_scope, errors_json, sections_json)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""", ("old","2026-10-01T00:00:00Z","Mac","daily","ok",0,"v1","hash","[]","[]",payload))
         photo = get_photo("old", str(self.path))
         self.assertEqual(photo["four_hour_label"], "4h antigua")
         with sqlite3.connect(self.path) as conn:

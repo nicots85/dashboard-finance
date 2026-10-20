@@ -24,7 +24,8 @@ class TextCatalogTests(unittest.TestCase):
     def test_every_asset_has_name_and_definition(self):
         assets, glossary, _, names = refresh_catalog()
         for section, config in assets.items():
-            self.assertEqual(set(config["activos"]), set(config["nombres"]), section)
+            self.assertEqual(set(config["activos"]) | set(config.get("complementos", [])),
+                             set(config["nombres"]), section)
             for symbol in config["activos"]:
                 self.assertTrue(config["nombres"][symbol].strip())
                 self.assertTrue(glossary["terminos"][symbol].strip())

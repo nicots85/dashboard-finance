@@ -88,11 +88,16 @@ smallcaps:
     - "IJR"      # iShares Core S&P Small-Cap ETF
     - "IWO"      # iShares Russell 2000 Growth ETF
     - "IWN"      # iShares Russell 2000 Value ETF
+  # SPY solo se descarga y alimenta el par IWM/S&P 500 (misma sesión de
+  # 4h que IWM); no entra en el semáforo ni en el conteo de subas.
+  complementos:
+    - "SPY"
   nombres:
     IWM: "Pequeñas empresas Russell 2000 — fondo cotizado"
     IJR: "Pequeñas empresas S&P 600 — fondo cotizado"
     IWO: "Pequeñas empresas de crecimiento — fondo cotizado"
     IWN: "Pequeñas empresas de valor — fondo cotizado"
+    SPY: "S&P 500 — fondo cotizado, pierna del par IWM/S&P 500"
 
 cripto:
   fuente: ccxt

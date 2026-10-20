@@ -138,6 +138,22 @@ def thin_liquidity(bars, flat_streak=3, volume_share=0.3, window=20, key="sessio
     return {"thin": True, "reason": "; ".join(reasons), "flat_streak": streak + 1, "volume_share": share}
 
 
+def dispersion_persistente(companies, threshold_pct=2.0, dias=5, hits=3):
+    """Dispersión persistente: superó el umbral en `hits` de las últimas
+    `dias` ruedas. Devuelve {empresa: bool} para el estado actual.
+
+    Es una alerta de lectura (posible dividendo, evento corporativo o
+    baja negociación), no una marca de liquidez.
+    """
+    if companies.empty:
+        return {}
+    median = companies.median(axis=1)
+    fuera = ((companies.div(median, axis=0) - 1).abs() * 100 > threshold_pct)
+    ventana = fuera.rolling(dias, min_periods=hits).sum()
+    actual = ventana.iloc[-1]
+    return {nombre: bool(actual[nombre] >= hits) for nombre in companies.columns}
+
+
 def dispersion(companies, threshold_pct, symbols=None, yellow_pct=None):
     """Desvío de cada empresa contra la mediana de ese mismo día.
 
@@ -223,6 +239,11 @@ def argentina_indicators(frames, rows, pilot, pares, equivalencias, now, intrada
     threshold = pilot.get("dispersion_threshold_pct", 5.0)
     yellow = pilot.get("dispersion_yellow_pct", max(threshold / 2.0, 0.5))
     rows_out = dispersion(companies, threshold, {pair["nombre"]: pair["local"] for pair in pares}, yellow)
+    persistente = dispersion_persistente(
+        companies, threshold,
+        pilot.get("dispersion_persistent_window", 5), pilot.get("dispersion_persistent_hits", 3))
+    for row in rows_out:
+        row["persistente"] = persistente.get(row["company"], False)
     flags = {}
     for pair in pares:
         bars = frames.get((pair["local"], "1D"))

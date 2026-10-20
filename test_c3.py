@@ -47,7 +47,9 @@ class SnapshotTests(unittest.TestCase):
     def test_old_schema_version_remains_readable(self):
         conn = sqlite3.connect(self.db)
         ensure_table(conn)
-        conn.execute("INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)", (
+        conn.execute("""INSERT INTO snapshot_photos
+            (id, created_at, machine, trigger, status, late, app_version, params_hash, tfs_scope, errors_json, sections_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
             "vieja-1", "2026-10-01T00:00:00+00:00", "m", "daily", "ok", 0, "v0", "h0", '["1D"]', "[]",
             json.dumps({"schema_version": 0, "sections": {"indices": {"assets": [], "pairs": [], "macro": []}}})))
         conn.commit()

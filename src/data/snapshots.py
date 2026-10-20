@@ -59,6 +59,10 @@ def ensure_table(conn):
         trigger TEXT NOT NULL, status TEXT NOT NULL, late INTEGER NOT NULL,
         app_version TEXT, params_hash TEXT, tfs_scope TEXT, errors_json TEXT,
         sections_json TEXT NOT NULL)""")
+    try:
+        conn.execute("ALTER TABLE snapshot_photos ADD COLUMN notes_json TEXT NOT NULL DEFAULT '[]'")
+    except sqlite3.OperationalError:
+        pass
     conn.execute("CREATE INDEX IF NOT EXISTS idx_photos_created ON snapshot_photos(created_at)")
 
 
@@ -247,10 +251,13 @@ def argentina_ccl(conn, now=None):
     companies = pd.DataFrame(series).sort_index().dropna(how="all")
     if companies.empty:
         return {"median": None, "companies": 0}
-    from src.argentina_math import dispersion, dispersion_reference, median_reading, thin_liquidity
+    from src.argentina_math import dispersion, dispersion_reference, median_reading, thin_liquidity, dispersion_persistente
     cls_cfg = yaml.safe_load((ROOT / "config/sections.yaml").read_text())["argentina"]
     threshold = cls_cfg.get("dispersion_threshold_pct", 2.0)
     yellow = cls_cfg.get("dispersion_yellow_pct", max(threshold / 2.0, 0.5))
+    persistente = dispersion_persistente(
+        companies, threshold,
+        cls_cfg.get("dispersion_persistent_window", 5), cls_cfg.get("dispersion_persistent_hits", 3))
     median = median_reading(companies.median(axis=1).dropna())
     marques = {}
     for pair in cfg["pares"]:
@@ -269,15 +276,18 @@ def argentina_ccl(conn, now=None):
             "companies": len(companies.columns),
             "by_company": {row["company"]: {"ccl": row["ccl"], "vs_median_pct": row["vs_median_pct"],
                                             "highlight": row["highlight"], "alert": row["alert"],
+                                            "persistente": bool(persistente.get(row["company"], False)),
                                             "thin": (marques.get(row["company"]) or {}).get("thin", False),
                                             "thin_reason": (marques.get(row["company"]) or {}).get("reason")}
                            for row in dispersion(companies, threshold, yellow_pct=yellow)},
             "dispersion_threshold_pct": threshold,
             "dispersion_yellow_pct": yellow,
+            "dispersion_persistent_window": cls_cfg.get("dispersion_persistent_window", 5),
+            "dispersion_persistent_hits": cls_cfg.get("dispersion_persistent_hits", 3),
             "dispersion_reference": dispersion_reference(companies, 126, threshold, yellow)}
 
 
-def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", errors=None, tfs_scope=None, late=False):
+def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", errors=None, tfs_scope=None, late=False, notas=None):
     assets_cfg = yaml.safe_load((ROOT / "config/assets.yaml").read_text())
     params = yaml.safe_load((ROOT / "config/calc.yaml").read_text())
     pilots = yaml.safe_load((ROOT / "config/sections.yaml").read_text())
@@ -299,9 +309,12 @@ def take_snapshot(db_path=DEFAULT_DB_PATH, trigger="manual_full", status="ok", e
                                                              calc_config=params, pairs=pair_cfg))
         sections["argentina"]["ccl"] = argentina_ccl(conn)
         photo_id = f"{machine_name()}-{now.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
-        conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
+        conn.execute("""INSERT INTO snapshot_photos
+            (id, created_at, machine, trigger, status, late, app_version, params_hash, tfs_scope, errors_json, notes_json, sections_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (
             photo_id, now.isoformat(timespec="seconds"), machine_name(), trigger, status, int(late),
             app_version(), config_hash(), json.dumps(tfs_scope or ALL_TF), json.dumps(errors or [], ensure_ascii=False),
+            json.dumps(notas or [], ensure_ascii=False),
             json.dumps({"schema_version": SCHEMA_VERSION, "four_hour_format": 2, "alignment_format": 1, "direction_definition": "alt3_umbral005", "cointegration_definition": "binomial_blocks_v1", "sections": sections}, ensure_ascii=False, default=str)))
         conn.commit()
         return photo_id
@@ -313,14 +326,14 @@ def list_photos(db_path=DEFAULT_DB_PATH, limit=200):
     conn = sqlite3.connect(db_path)
     try:
         ensure_table(conn)
-        rows = conn.execute("""SELECT id,created_at,machine,trigger,status,late,app_version,params_hash,tfs_scope,errors_json,sections_json
+        rows = conn.execute("""SELECT id,created_at,machine,trigger,status,late,app_version,params_hash,tfs_scope,errors_json,notes_json,sections_json
             FROM snapshot_photos ORDER BY created_at DESC LIMIT ?""", (limit,)).fetchall()
         photos = []
         for r in rows:
-            item = dict(zip(["id", "created_at", "machine", "trigger", "status", "late", "app_version", "params_hash", "tfs_scope", "errors"], r[:10]))
-            item["four_hour_label"] = "4h versionada" if json.loads(r[10]).get("four_hour_format") == 2 else "4h antigua"
-            item["direction_definition_label"] = direction_definition_label(json.loads(r[10]))
-            item["cointegration_definition_label"] = cointegration_definition_label(json.loads(r[10]))
+            item = dict(zip(["id", "created_at", "machine", "trigger", "status", "late", "app_version", "params_hash", "tfs_scope", "errors", "notes"], r[:11]))
+            item["four_hour_label"] = "4h versionada" if json.loads(r[11]).get("four_hour_format") == 2 else "4h antigua"
+            item["direction_definition_label"] = direction_definition_label(json.loads(r[11]))
+            item["cointegration_definition_label"] = cointegration_definition_label(json.loads(r[11]))
             photos.append(item)
         return photos
     finally:
@@ -329,14 +342,15 @@ def list_photos(db_path=DEFAULT_DB_PATH, limit=200):
 
 def get_photo(photo_id, db_path=DEFAULT_DB_PATH):
     conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
     try:
         ensure_table(conn)
         row = conn.execute("SELECT * FROM snapshot_photos WHERE id=?", (photo_id,)).fetchone()
         if not row:
             raise KeyError(photo_id)
-        cols = ["id", "created_at", "machine", "trigger", "status", "late", "app_version", "params_hash", "tfs_scope", "errors_json", "sections_json"]
-        data = dict(zip(cols, row))
+        data = dict(row)
         data["errors"] = json.loads(data.pop("errors_json"))
+        data["notes"] = json.loads(data.pop("notes_json") or "[]")
         data["content"] = json.loads(data.pop("sections_json"))
         # Marca derivada al leer; NO reescribe ni completa contenido histórico.
         data["four_hour_label"] = "4h versionada" if data["content"].get("four_hour_format") == 2 else "4h antigua"
@@ -376,15 +390,21 @@ def import_photos(data: bytes, db_path=DEFAULT_DB_PATH):
                     else:
                         photo["id"] = photo["id"] + "-importado"
                         kept_distinct += 1
-                        conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
+                        conn.execute("""INSERT INTO snapshot_photos
+                            (id, created_at, machine, trigger, status, late, app_version, params_hash, tfs_scope, errors_json, notes_json, sections_json)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (
                             photo["id"], photo["created_at"], photo["machine"], photo["trigger"], photo["status"], photo["late"],
                             photo["app_version"], photo["params_hash"], photo["tfs_scope"], json.dumps(photo["errors"], ensure_ascii=False),
+                            json.dumps(photo.get("notes", []), ensure_ascii=False),
                             json.dumps(photo["content"], ensure_ascii=False, default=str)))
                         added += 1
                     continue
-                conn.execute("""INSERT INTO snapshot_photos VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
+                conn.execute("""INSERT INTO snapshot_photos
+                    (id, created_at, machine, trigger, status, late, app_version, params_hash, tfs_scope, errors_json, notes_json, sections_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     photo["id"], photo["created_at"], photo["machine"], photo["trigger"], photo["status"], photo["late"],
                     photo["app_version"], photo["params_hash"], photo["tfs_scope"], json.dumps(photo["errors"], ensure_ascii=False),
+                    json.dumps(photo.get("notes", []), ensure_ascii=False),
                     json.dumps(photo["content"], ensure_ascii=False, default=str)))
                 added += 1
         conn.commit()

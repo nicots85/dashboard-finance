@@ -322,7 +322,7 @@ def render_argentina_summary(pilot, model):
     for row in k["ccl_by_company"]:
         records.append({"Empresa": asset_label(row["local"]) if row.get("local") else row["company"], "CCL implícito": row["ccl"],
                         "% vs mediana": row["vs_median_pct"],
-                        "Estado": "Se aleja de la mediana" if row["highlight"] else "Dentro del umbral",
+                        "Estado": "Dispersión persistente" if row.get("persistente") else ("Se aleja de la mediana" if row["highlight"] else "Dentro del umbral"),
                         "Liquidez": "poco líquida" if row.get("thin") else "normal"})
     table = pd.DataFrame(records)
     threshold = k["dispersion_threshold_pct"]
@@ -340,7 +340,7 @@ def render_argentina_summary(pilot, model):
                      "Empresa": st.column_config.Column(help=help_text("activo")),
                      "CCL implícito": st.column_config.Column(help="Precio local en pesos multiplicado por las acciones del certificado y dividido por el precio del ADR, en la misma fecha."),
                      "% vs mediana": st.column_config.Column(help=f"Desvío de esa empresa contra la mediana de las cinco. Amarillo si supera {yellow:.0g}% y naranja si supera el umbral de {threshold:.0g}%."),
-                     "Estado": st.column_config.Column(help="Solo describe separación entre empresas; no indica calidad ni precio justo."),
+                     "Estado": st.column_config.Column(help=f"Dispersión persistente: superó el umbral de {threshold:.0g}% en {k.get('dispersion_persistent_hits', 3)} de las últimas {k.get('dispersion_persistent_window', 5)} ruedas, posible dividendo u otro evento corporativo, o baja negociación. Si no, describe solo la separación entre empresas de hoy."),
                      "Liquidez": st.column_config.Column(help="Poco líquida: cierre sin cambios varias ruedas seguidas o volumen por debajo de la parte configurable de su mediana de veinte ruedas. La dispersión de una acción poco líquida puede reflejar falta de negociación, no un precio cierto."),
                      "_index": st.column_config.Column(help=help_text("fila"))})
     reference = k["dispersion_reference"]

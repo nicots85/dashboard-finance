@@ -313,7 +313,7 @@ smallcaps:
   regular_session: true
   names: {}
   references: {IWM: [], IJR: [], IWO: [], IWN: []}
-  calendars: {IWM: NYSE, IJR: NYSE, IWO: NYSE, IWN: NYSE, "^GSPC": NYSE}
+  calendars: {IWM: NYSE, IJR: NYSE, IWO: NYSE, IWN: NYSE, SPY: NYSE}
   vwap_instruments: [IWM, IJR, IWO, IWN]
   default_ranges:
     "1m": {sessions: 2}
@@ -345,7 +345,7 @@ smallcaps:
     all_block_statistics: true
     binomial_gate: {null_probability: 0.05, alpha: 0.05}
   ratios:
-    - {y: IWM, x: "^GSPC", label: "IWM/S&P 500", window: 50, percentile_window: 250, trend_period: 5, chart_sessions: 500}
+    - {y: IWM, x: SPY, label: "IWM/S&P 500", window: 50, percentile_window: 250, trend_period: 5, chart_sessions: 500}
     - {y: IWO, x: IWN, label: "IWO/IWN", window: 50, percentile_window: 250, trend_period: 5, chart_sessions: 500}
   notices:
     - "Vista principal de sesión regular, sin premercado. Cada VWAP usa precio y volumen del mismo ETF desde las 09:30 de Nueva York. La segunda 4h de sesión termina en el cierre y puede ser más corta."
@@ -403,6 +403,8 @@ argentina:
   ccl_change_sessions: 5
   dispersion_yellow_pct: 1.0
   dispersion_threshold_pct: 2.0
+  dispersion_persistent_window: 5
+  dispersion_persistent_hits: 3
   thin_liquidity_flat_streak: 3
   thin_liquidity_volume_share: 0.3
   thin_liquidity_window: 20

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
-from src.argentina_math import common_window, ccl_series, session_four_hour, dispersion, median_reading
+from src.argentina_math import common_window, ccl_series, session_four_hour, dispersion, dispersion_persistente, median_reading
 from src.data.backup import ROOT, snapshot_database
 from src.data.db_manager import DEFAULT_DB_PATH, DatabaseManager
 from src.data.snapshots import list_photos, take_snapshot, get_photo, SCHEMA_VERSION
@@ -68,6 +68,20 @@ class ArgentinaMathTests(unittest.TestCase):
         self.assertFalse(rows["C"]["highlight"])
         self.assertFalse(rows["A"]["highlight"])
         self.assertAlmostEqual(rows["B"]["vs_median_pct"], 5.0, places=6)
+
+    def test_persistent_dispersion_needs_three_of_last_five(self):
+        # C supera 2% en las últimas tres ruedas; E en dos; el resto nunca
+        # cambia. La mediana no se mueve (solo C se aparta, las demás quedan planas).
+        plano = [100.0] * 7
+        frame = pd.DataFrame({"C": [100.0] * 4 + [105.0, 105.0, 105.0],
+                              "E": [100.0] * 5 + [105.0, 105.0],
+                              "B": plano, "A": plano, "D": plano},
+                             index=pd.date_range("2026-09-28", periods=7))
+        flags = dispersion_persistente(frame, 2.0)
+        self.assertTrue(flags["C"])
+        self.assertFalse(flags["E"])
+        self.assertFalse(flags["B"])
+        self.assertFalse(flags["A"])
 
     def test_median_change_uses_five_sessions(self):
         history = pd.Series([100.0, 100.0, 100.0, 100.0, 100.0, 110.0],

@@ -77,6 +77,12 @@ Si aparecen líneas con la palabra "dashboard", la tarea programada está
 instalada. (El nombre exacto del servicio lo define
 `install_daily_backup.py`; revisá ese archivo si cambiaste algo.)
 
+Estado actual (20 de octubre de 2026): la tarea diaria NO está
+instalada en esta Mac (no hay ningún "dashboard" en
+`~/Library/LaunchAgents` ni en `launchctl list`; lo que aparece como
+`com.apple.financed` es un servicio propio de macOS, sin relación).
+Instalala con `install_daily_backup.py` cuando quieras que corra sola.
+
 ### Opción B — actualizar a mano desde la terminal
 
 Si querés actualizar ahora mismo, pegá esta línea:
@@ -163,7 +169,16 @@ esa corrida. Útil para mirar algo fresco fuera de horario.
 2. La referencia es la **mediana** de las cinco empresas; cada empresa
    se resalta amarillo si se aleja más del 1% y naranja si supera el
    2%.
-3. El CCL intradía solo existe dentro de la ventana común
+3. La columna **Estado** marca «Dispersión persistente» cuando la
+   empresa superó el 2% en 3 de las últimas 5 ruedas: suele indicar un
+   evento corporativo (por ejemplo un dividendo pagado en un solo
+   mercado, como el de Central Puerto de septiembre de 2026) o poca
+   negociación; mientras persista, su CCL no es comparable con el de
+   las demás.
+4. La columna **Liquidez** marca «poco líquida» cuando el cierre queda
+   sin cambios varias ruedas o el volumen cae por debajo de la parte
+   configurable de su mediana de veinte ruedas.
+5. El CCL intradía solo existe dentro de la ventana común
    BYMA–NYSE; fuera de esa ventana la pestaña muestra el cierre del
    día.
 
@@ -244,9 +259,14 @@ python -c "import sqlite3; [print(r) for r in sqlite3.connect('data/finance.db')
 python -c "import sqlite3; [print(r) for r in sqlite3.connect('data/finance.db').execute('SELECT created_at,trigger,status,late FROM snapshot_photos ORDER BY created_at DESC LIMIT 3').fetchall()]"
 ```
 
-   La última fila es la última foto: `daily`, `ok` y `late=0` es el
-   estado ideal. `late=1` significa que se tomó después de la hora
-   prevista (por ejemplo porque la Mac estaba dormida).
+   La última fila es la última foto. Los estados posibles son tres:
+   `ok` (todo sin avisos), `completa (con notas)` (la corrida terminó,
+   pero hay datos con avisos conocidos, por ejemplo historias cortas;
+   se muestran separadas en el detalle del Historial) y `partial`
+   (fallo real de un paso, con la lista de qué falló). `daily` con
+   `ok` o `completa (con notas)` es el estado esperado. `late=1`
+   significa que se tomó después de la hora prevista (por ejemplo
+   porque la Mac estaba dormida).
 
 ---
 

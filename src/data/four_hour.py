@@ -31,6 +31,7 @@ def policy(symbol):
     session_symbols = set(cfg["session_symbols"])
     for section in cfg["session_sections"]:
         session_symbols.update(assets[section]["activos"])
+        session_symbols.update(assets[section].get("complementos", []))
     if symbol in session_symbols:
         return {"method": "session_us", "reference": symbol, "timezone": cfg["session_timezone"], "starts": cfg["session_starts"]}
     return None
