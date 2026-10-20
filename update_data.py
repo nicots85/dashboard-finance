@@ -349,6 +349,17 @@ def main():
         else:
             print(f"   ⚠️  Fuente desconocida '{fuente}' para sección {sec}.")
 
+    # Eventos corporativos locales (dividendos y splits de las acciones argentinas)
+    locales = [p.get("local") for p in config.get("argentina", {}).get("pares", []) if p.get("local")]
+    if locales:
+        try:
+            from src.data.events import sync_events
+            with db._get_connection() as conn:
+                nuevos, vigentes = sync_events(conn, locales)
+            print(f"\n📅 Eventos corporativos: {nuevos} nuevos · {vigentes} vigentes (dividendos y splits locales de 90 días).")
+        except Exception as exc:
+            print(f"   ⚠️  Eventos corporativos no descargados: {exc}")
+
     # Imprimir tabla resumen final
     print_summary_table(all_results)
     return 1 if any(r["status"].startswith(("ERROR", "PARCIAL")) for r in all_results) else 0

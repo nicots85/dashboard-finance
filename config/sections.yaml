@@ -405,6 +405,8 @@ argentina:
   dispersion_threshold_pct: 2.0
   dispersion_persistent_window: 5
   dispersion_persistent_hits: 3
+  evento_dividendo_pct_minimo: 1.0
+  evento_window_sessions: 8
   thin_liquidity_flat_streak: 3
   thin_liquidity_volume_share: 0.3
   thin_liquidity_window: 20

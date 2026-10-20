@@ -36,6 +36,35 @@ class ProtectionTests(unittest.TestCase):
         self.df = fixture()
         self.db.save_candles(self.df, "BTC/USDT", "1D", "binance")
 
+    def test_delete_cointegration_except_removes_only_unconfigured_pairs(self):
+        guardado = {"is_cointegrated": False, "p_value": 0.5, "beta": 1.0, "z_spread": 0.2,
+                    "half_life": 5.0, "pct_coint_windows": 10.0, "timestamp": pd.Timestamp("2026-10-19", tz="UTC")}
+        for par in ("IWM/^GSPC", "IWM/SPY"):
+            for tf in ("1D", "1h", "4h"):
+                self.db.save_cointegration_result(par, tf, guardado["timestamp"], guardado)
+        self.assertEqual(self.db.delete_cointegration_except({"IWM/SPY"}), 3)
+        restantes = sqlite3.connect(self.db.db_path).execute(
+            "SELECT pair, timeframe FROM calc_cointegration ORDER BY pair, timeframe").fetchall()
+        self.assertEqual(restantes, [("IWM/SPY", "1D"), ("IWM/SPY", "1h"), ("IWM/SPY", "4h")])
+
+    def test_orphan_calc_rows_and_null_close_bars_are_cleaned(self):
+        con = sqlite3.connect(self.db.db_path)
+        for ts in ("2026-10-15 04:00:00+0000", "2026-10-19 04:00:00+0000"):
+            con.execute("INSERT INTO calc_zscores (symbol,timeframe,timestamp,z_std,updated_at) VALUES (?,?,?,0.5,datetime('now'))", ("^N225", "1D", ts))
+        con.execute("""INSERT INTO candles (symbol,timeframe,timestamp,open,high,low,close,volume,source,updated_at)
+            VALUES ('^N225','1D','2026-10-19 04:00:00+0000',1,1,1,NULL,0,'yahoo',datetime('now'))""")
+        con.commit()
+        con.close()
+        self.assertEqual(self.db.delete_calc_rows_after("calc_zscores", "^N225", "1D", pd.Timestamp("2026-10-15 04:00", tz="UTC")), 1)
+        # Guardar velas deja fuera la fila incompleta y borra la que ya existía.
+        self.db.save_candles(fixture(3, start="2026-10-12"), "^N225", "1D", "yahoo")
+        quedan = sqlite3.connect(self.db.db_path).execute(
+            "SELECT COUNT(*) FROM calc_zscores WHERE symbol='^N225'").fetchone()[0]
+        self.assertEqual(quedan, 1)
+        nulos = sqlite3.connect(self.db.db_path).execute(
+            "SELECT COUNT(*) FROM candles WHERE symbol='^N225' AND timeframe='1D' AND close IS NULL").fetchone()[0]
+        self.assertEqual(nulos, 0)
+
     def tearDown(self):
         self.tmp.cleanup()
 

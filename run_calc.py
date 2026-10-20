@@ -157,6 +157,9 @@ def main():
 
                     # Z-Score
                     db.save_zscore_result(sym, tf, z, input_versions=inputs, params=calc_cfg.get("zscore", {}))
+                    ultimo_df = df["timestamp"].max()
+                    db.delete_calc_rows_after("calc_regimes", sym, tf, ultimo_df)
+                    db.delete_calc_rows_after("calc_zscores", sym, tf, ultimo_df)
                     if reg["direction"] == "sin datos" or z["z_atr"] is None:
                         fallos.append((sym, tf, "No calculable: falta historia para régimen o dispersión"))
                     else:
@@ -186,7 +189,7 @@ def main():
     # -------------------------------------------------------------
     coint_allowed_tfs = [t for t in target_tfs if t in calc_cfg["cointegration"]["allowed_timeframes"]]
     print(f"\n🔗 Procesando Cointegración de Pares (en {', '.join(coint_allowed_tfs)})...")
-
+    pares_vigentes = set()
     for sec in secciones_a_correr:
         if sec == "argentina":
             continue  # Local/ADR se analiza con CCL, no con cointegración.
@@ -196,6 +199,7 @@ def main():
             sym_x = p_info["x"]
             nombre = p_info.get("nombre", f"{sym_y}/{sym_x}")
             pair_key = f"{sym_y}/{sym_x}"
+            pares_vigentes.add(pair_key)
 
             for tf in coint_allowed_tfs:
                 df_y = db.load_candles(sym_y, tf)
@@ -216,6 +220,7 @@ def main():
                         last_ts = max(available) if available else pd.Timestamp.now(tz="UTC")
                     db.save_cointegration_result(pair_key, tf, last_ts, c_res,
                         input_versions=[df_y.attrs["data_version"], df_x.attrs["data_version"]], params=calc_cfg.get("cointegration", {}))
+                    db.delete_calc_rows_after("calc_cointegration", pair_key, tf, last_ts)
                     calculable = c_res["p_value"] is not None
                     if not calculable:
                         fallos.append((pair_key, tf, c_res.get("error_message", "No calculable")))
@@ -243,6 +248,14 @@ def main():
                 except Exception as e:
                     fallos.append((pair_key, tf, f"Error coint: {str(e)[:40]}"))
                     db.record_data_notice(pair_key, tf, "calculation_error", f"No calculable: {e}")
+
+    # Limpieza: los resultados de pares que ya no están en la configuración no
+    # se recalculan nunca más; dejarlos genera avisos eternos de "requieren
+    # atención". Se borran para que solo queden filas de pares vigentes.
+    if pares_vigentes:
+        ab = db.delete_cointegration_except(pares_vigentes, tuple(coint_allowed_tfs))
+        if ab:
+            print(f"\n🧹 {ab} resultados de pares ya no configurados se eliminaron.")
 
     # -------------------------------------------------------------
     # 3. Imprimir Tablas de Resumen Prolijas en Español

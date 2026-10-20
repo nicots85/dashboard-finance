@@ -169,12 +169,16 @@ esa corrida. Útil para mirar algo fresco fuera de horario.
 2. La referencia es la **mediana** de las cinco empresas; cada empresa
    se resalta amarillo si se aleja más del 1% y naranja si supera el
    2%.
-3. La columna **Estado** marca «Dispersión persistente» cuando la
-   empresa superó el 2% en 3 de las últimas 5 ruedas: suele indicar un
-   evento corporativo (por ejemplo un dividendo pagado en un solo
-   mercado, como el de Central Puerto de septiembre de 2026) o poca
-   negociación; mientras persista, su CCL no es comparable con el de
-   las demás.
+3. La columna **Estado** puede marcar, con esta prioridad:
+   «Posible evento corporativo» cuando Yahoo registró en el mercado
+   local un dividendo que supera el porcentaje configurable del precio
+   (por defecto 1%, con datos de 90 días) o un split, durante las 8
+   ruedas desde su ex-dividendo; el desfase entre la fecha ex-dividendo
+   local y la del ADR distorsiona el CCL de esos días (así se explican
+   los días raros de Central Puerto de septiembre de 2026). Si no hay
+   evento, marca «Dispersión persistente» cuando la empresa superó el
+   2% en 3 de las últimas 5 ruedas. La marca no cambia la mediana ni el
+   CCL; solo describe.
 4. La columna **Liquidez** marca «poco líquida» cuando el cierre queda
    sin cambios varias ruedas o el volumen cae por debajo de la parte
    configurable de su mediana de veinte ruedas.

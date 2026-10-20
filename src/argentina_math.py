@@ -154,6 +154,49 @@ def dispersion_persistente(companies, threshold_pct=2.0, dias=5, hits=3):
     return {nombre: bool(actual[nombre] >= hits) for nombre in companies.columns}
 
 
+def evento_activo(sesiones, ex_date, dias=8):
+    """Vigente mientras la última rueda esté dentro de las `dias` ruedas
+    siguientes al ex-dividendo local (incluido el día del ex-dividendo)."""
+    ex = pd.Timestamp(ex_date).date()
+    fechas = sorted(pd.Timestamp(s).date() for s in sesiones)
+    posteriores = [s for s in fechas if s >= ex]
+    return bool(posteriores) and (len(fechas) - fechas.index(posteriores[0]) <= dias)
+
+
+def dividendo_pct(monto, prev_close):
+    """Dividendo como porcentaje del cierre anterior al ex-dividendo."""
+    if not monto or not prev_close or prev_close <= 0:
+        return None
+    return float(monto) / float(prev_close) * 100.0
+
+
+def marcas_evento(cierres, eventos, pct_minimo, dias):
+    """El evento local más reciente que supera el umbral y sigue en ventana.
+
+    cierres: serie de cierres del mercado local indexada por fecha.
+    eventos: lista [{tipo, ex_date, monto}] o None si la tabla está vacía
+    (sin tabla se omite la marca, igual que sin configuración).
+    No cambia la mediana ni el CCL: solo describe.
+    """
+    if eventos is None or cierres is None or cierres.empty:
+        return None
+    for ev in sorted(eventos, key=lambda e: e["ex_date"], reverse=True):
+        if ev["tipo"] == "dividendo":
+            ex = pd.Timestamp(ev["ex_date"]).date()
+            prev = [float(cierres.iloc[i]) for i, s in enumerate(cierres.index) if pd.Timestamp(s).date() < ex]
+            if not prev:
+                continue
+            pct = dividendo_pct(ev["monto"], prev[-1])
+            if pct is None or pct < pct_minimo:
+                continue
+        else:
+            pct = None
+        if not evento_activo(cierres.index, ev["ex_date"], dias):
+            continue
+        return {"tipo": ev["tipo"], "ex_date": str(ev["ex_date"]), "monto": ev["monto"], "pct": pct}
+    return None
+
+
 def dispersion(companies, threshold_pct, symbols=None, yellow_pct=None):
     """Desvío de cada empresa contra la mediana de ese mismo día.
 

@@ -234,6 +234,7 @@ def argentina_ccl(conn, now=None):
     cfg = yaml.safe_load((ROOT / "config/assets.yaml").read_text())["argentina"]
     equivalences = cfg["equivalencias"]
     series = {}
+    cierres_local = {}
     for pair in cfg["pares"]:
         ratio = equivalences.get(pair["adr"])
         if not ratio:
@@ -244,6 +245,7 @@ def argentina_ccl(conn, now=None):
             continue
         a = local.assign(d=pd.to_datetime(local.timestamp, utc=True).dt.date).groupby("d").close.last()
         b = adr.assign(d=pd.to_datetime(adr.timestamp, utc=True).dt.date).groupby("d").close.last()
+        cierres_local[pair["nombre"]] = a
         common = a.index.intersection(b.index)
         if len(common):
             values = (a.loc[common] * ratio / b.loc[common])
@@ -251,7 +253,8 @@ def argentina_ccl(conn, now=None):
     companies = pd.DataFrame(series).sort_index().dropna(how="all")
     if companies.empty:
         return {"median": None, "companies": 0}
-    from src.argentina_math import dispersion, dispersion_reference, median_reading, thin_liquidity, dispersion_persistente
+    from src.argentina_math import dispersion, dispersion_reference, median_reading, thin_liquidity, dispersion_persistente, marcas_evento
+    from src.data.events import read_events
     cls_cfg = yaml.safe_load((ROOT / "config/sections.yaml").read_text())["argentina"]
     threshold = cls_cfg.get("dispersion_threshold_pct", 2.0)
     yellow = cls_cfg.get("dispersion_yellow_pct", max(threshold / 2.0, 0.5))
@@ -260,15 +263,24 @@ def argentina_ccl(conn, now=None):
         cls_cfg.get("dispersion_persistent_window", 5), cls_cfg.get("dispersion_persistent_hits", 3))
     median = median_reading(companies.median(axis=1).dropna())
     marques = {}
-    for pair in cfg["pares"]:
-        if not equivalences.get(pair["adr"]):
+    eventos = {}
+    locales_por_empresa = {pair["nombre"]: pair["local"] for pair in cfg["pares"] if equivalences.get(pair["adr"])}
+    for empresa in companies.columns:  # las marcas de evento no cambian la mediana
+        simbolo = locales_por_empresa.get(empresa)
+        ev = read_events(conn, simbolo) if simbolo else None
+        eventos[empresa] = marcas_evento(
+            cierres_local.get(empresa), ev,
+            cls_cfg.get("evento_dividendo_pct_minimo", 1.0),
+            cls_cfg.get("evento_window_sessions", 8))
+        simbolo_local = locales_por_empresa.get(empresa)
+        if not simbolo_local:
             continue
-        daily = pd.read_sql_query("SELECT timestamp,close,volume FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp", conn, params=(pair["local"],))
+        daily = pd.read_sql_query("SELECT timestamp,close,volume FROM candles WHERE symbol=? AND timeframe='1D' ORDER BY timestamp", conn, params=(simbolo_local,))
         if daily.empty:
             continue
         diario = (daily.assign(session=pd.to_datetime(daily.timestamp, utc=True).dt.date.astype(str))
                   .groupby("session").agg(close=("close", "last"), volume=("volume", "sum")).reset_index())
-        marques[pair["nombre"]] = thin_liquidity(
+        marques[empresa] = thin_liquidity(
             diario, cls_cfg.get("thin_liquidity_flat_streak", 3), cls_cfg.get("thin_liquidity_volume_share", 0.3),
             cls_cfg.get("thin_liquidity_window", 20))
     return {"median": median["median"], "change_5": median["change_5"], "distance_std": median["distance_std"],
@@ -277,6 +289,7 @@ def argentina_ccl(conn, now=None):
             "by_company": {row["company"]: {"ccl": row["ccl"], "vs_median_pct": row["vs_median_pct"],
                                             "highlight": row["highlight"], "alert": row["alert"],
                                             "persistente": bool(persistente.get(row["company"], False)),
+                                            "evento": eventos.get(row["company"]),
                                             "thin": (marques.get(row["company"]) or {}).get("thin", False),
                                             "thin_reason": (marques.get(row["company"]) or {}).get("reason")}
                            for row in dispersion(companies, threshold, yellow_pct=yellow)},
@@ -284,6 +297,8 @@ def argentina_ccl(conn, now=None):
             "dispersion_yellow_pct": yellow,
             "dispersion_persistent_window": cls_cfg.get("dispersion_persistent_window", 5),
             "dispersion_persistent_hits": cls_cfg.get("dispersion_persistent_hits", 3),
+            "evento_dividendo_pct_minimo": cls_cfg.get("evento_dividendo_pct_minimo", 1.0),
+            "evento_window_sessions": cls_cfg.get("evento_window_sessions", 8),
             "dispersion_reference": dispersion_reference(companies, 126, threshold, yellow)}
 
 

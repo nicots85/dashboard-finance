@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
-from src.argentina_math import common_window, ccl_series, session_four_hour, dispersion, dispersion_persistente, median_reading
+from src.argentina_math import common_window, ccl_series, session_four_hour, dispersion, dispersion_persistente, evento_activo, dividendo_pct, marcas_evento, median_reading
 from src.data.backup import ROOT, snapshot_database
 from src.data.db_manager import DEFAULT_DB_PATH, DatabaseManager
 from src.data.snapshots import list_photos, take_snapshot, get_photo, SCHEMA_VERSION
@@ -82,6 +82,33 @@ class ArgentinaMathTests(unittest.TestCase):
         self.assertFalse(flags["E"])
         self.assertFalse(flags["B"])
         self.assertFalse(flags["A"])
+
+    def test_evento_window_covers_the_ex_date_and_last_wheel_counts(self):
+        sesiones = pd.bdate_range("2026-09-03", "2026-09-25").date  # 17 ruedas
+        self.assertTrue(evento_activo(sesiones, "2026-09-18", 8))    # 6 ruedas desde el ex-dividendo: adentro
+        self.assertTrue(evento_activo(sesiones, "2026-09-18", 6))    # justo la sexta rueda: sigue adentro
+        self.assertFalse(evento_activo(sesiones, "2026-09-18", 5))   # séptima rueda: fuera
+        self.assertFalse(evento_activo(sesiones, "2026-09-03", 8))   # 17 ruedas: fuera
+        self.assertFalse(evento_activo(sesiones, "2026-10-01", 8))   # ex-dividendo futuro: nada
+        self.assertAlmostEqual(dividendo_pct(164.0, 2285.5), 164.0 / 2285.5 * 100)
+        self.assertIsNone(dividendo_pct(0, 100))
+        self.assertIsNone(dividendo_pct(None, None))
+
+    def test_evento_marks_respect_threshold_and_window(self):
+        index = pd.to_datetime(pd.date_range("2026-09-14", "2026-09-18", freq="B")).date
+        cierres = pd.Series([2250.0, 2294.0, 2090.0, 2123.0, 2130.0], index=index)
+        cepu = [{"tipo": "dividendo", "ex_date": "2026-09-18", "monto": 164.0}]   # 164/2294 ≈ 7.2%
+        ggal = [{"tipo": "dividendo", "ex_date": "2026-09-15", "monto": 8.300841}]  # ≈ 0.14%: no marca
+        marca = marcas_evento(cierres, cepu, pct_minimo=1.0, dias=8)
+        self.assertIsNotNone(marca)
+        self.assertEqual(marca["tipo"], "dividendo")
+        self.assertGreater(marca["pct"], 1.0)
+        self.assertIsNone(marcas_evento(cierres, ggal, pct_minimo=1.0, dias=8))
+        # Con ventana de cero ruedas no hay marca.
+        notas = marcas_evento(cierres, cepu, pct_minimo=1.0, dias=0)
+        self.assertIsNone(notas)
+        # Sin tabla de eventos (None): se omite silenciosamente.
+        self.assertIsNone(marcas_evento(cierres, None, pct_minimo=1.0, dias=8))
 
     def test_median_change_uses_five_sessions(self):
         history = pd.Series([100.0, 100.0, 100.0, 100.0, 100.0, 110.0],

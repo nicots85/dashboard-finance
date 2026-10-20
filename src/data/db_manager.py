@@ -212,6 +212,13 @@ class DatabaseManager(DataAuditMixin):
 
         # Preparar datos
         df_to_save = df.drop_duplicates(subset=["timestamp"], keep="last").copy()
+        # Barras sin precio de cierre no aportan nada y envenenan los cálculos
+        # (por ejemplo ^N225 1D con una vela incompleta de Yahoo): se descartan
+        # y se borran las que ya quedaran guardadas con cierre nulo.
+        df_to_save = df_to_save[df_to_save["close"].notna()]
+        if df_to_save.empty:
+            self.delete_null_close_candles(symbol, timeframe)
+            return 0
         if not pd.api.types.is_datetime64_any_dtype(df_to_save["timestamp"]):
             df_to_save["timestamp"] = pd.to_datetime(df_to_save["timestamp"], utc=True)
         else:
@@ -241,6 +248,7 @@ class DatabaseManager(DataAuditMixin):
         with self._get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
+            cursor.execute("DELETE FROM candles WHERE symbol=? AND timeframe=? AND close IS NULL", (symbol, timeframe))
             now = observed_at or clock()
             fields = ["open", "high", "low", "close", "volume", "source"]
             previous = {row[0]: row for row in conn.execute(
@@ -437,6 +445,62 @@ class DatabaseManager(DataAuditMixin):
             self._calculation_metadata(conn, "calc_macro", series_id, "1D", ts_str, input_versions, params,
                                        "no_calculable" if macro_data.get("current_value") is None else "ok")
             conn.commit()
+
+    def delete_null_close_candles(self, symbol: str, timeframe: str) -> int:
+        """Borra barras guardadas sin precio de cierre (velas incompletas)."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM candles WHERE symbol=? AND timeframe=? AND close IS NULL", (symbol, timeframe))
+            total = cursor.rowcount
+            conn.commit()
+        return total
+
+    def delete_calc_rows_after(self, table: str, asset: str, timeframe: str, ts) -> int:
+        """Borra filas de cálculo con fecha posterior al último dato real.
+
+        Dejan de ser huérfanas que tapan el resultado fresco en el control
+        de trazabilidad (por ejemplo tras borrar una vela sin cierre).
+        """
+        from src.data.audit import CALC_TABLES
+        if table not in CALC_TABLES:
+            raise ValueError("Tabla de cálculo no reconocida")
+        key = CALC_TABLES[table]
+        limite = pd.Timestamp(ts, tz="UTC") if not isinstance(ts, pd.Timestamp) else ts
+        limite = limite.strftime("%Y-%m-%d %H:%M:%S%z")
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cond = f"DELETE FROM {table} WHERE {key}=? AND timestamp>?" + ("" if table == "calc_macro" else " AND timeframe=?")
+            args = (asset, limite) if table == "calc_macro" else (asset, limite, timeframe)
+            cursor.execute(cond, args)
+            total = cursor.rowcount
+            conn.commit()
+        return total
+
+    def delete_cointegration_except(self, pairs, timeframes=("1D", "1h", "4h")) -> int:
+        """Borra resultados de cointegración de pares ya no configurados.
+
+        Sus filas nunca más se recalculan y quedan avisando para siempre
+        (stale o no calculable); borrarlas deja solo filas de pares vigentes.
+        Devuelve la cantidad de filas eliminadas.
+        """
+        if not pairs:
+            return 0
+        ph_tf = ",".join("?" for _ in timeframes)
+        ph_par = ",".join("?" for _ in pairs)
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            rows = cursor.execute(
+                f"SELECT DISTINCT pair FROM calc_cointegration WHERE timeframe IN ({ph_tf}) AND pair NOT IN ({ph_par})",
+                tuple(timeframes) + tuple(pairs)).fetchall()
+            cursor.execute(
+                f"DELETE FROM calc_cointegration WHERE timeframe IN ({ph_tf}) AND pair NOT IN ({ph_par})",
+                tuple(timeframes) + tuple(pairs))
+            total = cursor.rowcount
+            for (pair,) in rows:
+                cursor.execute("""UPDATE data_notices SET resolved_at=datetime('now'), last_seen=last_seen
+                    WHERE asset=? AND resolved_at IS NULL""", (pair,))
+            conn.commit()
+            return total
 
     def load_candles(
         self,

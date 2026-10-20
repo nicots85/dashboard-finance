@@ -322,7 +322,9 @@ def render_argentina_summary(pilot, model):
     for row in k["ccl_by_company"]:
         records.append({"Empresa": asset_label(row["local"]) if row.get("local") else row["company"], "CCL implícito": row["ccl"],
                         "% vs mediana": row["vs_median_pct"],
-                        "Estado": "Dispersión persistente" if row.get("persistente") else ("Se aleja de la mediana" if row["highlight"] else "Dentro del umbral"),
+                        "Estado": ("Posible evento corporativo" if row.get("evento") else
+                                   "Dispersión persistente" if row.get("persistente") else
+                                   "Se aleja de la mediana" if row["highlight"] else "Dentro del umbral"),
                         "Liquidez": "poco líquida" if row.get("thin") else "normal"})
     table = pd.DataFrame(records)
     threshold = k["dispersion_threshold_pct"]
@@ -340,7 +342,8 @@ def render_argentina_summary(pilot, model):
                      "Empresa": st.column_config.Column(help=help_text("activo")),
                      "CCL implícito": st.column_config.Column(help="Precio local en pesos multiplicado por las acciones del certificado y dividido por el precio del ADR, en la misma fecha."),
                      "% vs mediana": st.column_config.Column(help=f"Desvío de esa empresa contra la mediana de las cinco. Amarillo si supera {yellow:.0g}% y naranja si supera el umbral de {threshold:.0g}%."),
-                     "Estado": st.column_config.Column(help=f"Dispersión persistente: superó el umbral de {threshold:.0g}% en {k.get('dispersion_persistent_hits', 3)} de las últimas {k.get('dispersion_persistent_window', 5)} ruedas, posible dividendo u otro evento corporativo, o baja negociación. Si no, describe solo la separación entre empresas de hoy."),
+                     "Estado": st.column_config.Column(help=(
+                         "Posible evento corporativo: dividendo (superó el " + f"{k.get('evento_dividendo_pct_minimo', 1.0):.0g}% del precio) o split registrado en el mercado local, con la ventana de {k.get('evento_window_sessions', 8)} ruedas desde su ex-dividendo; el desfase entre la fecha ex-dividendo local y la del ADR distorsiona el CCL implícito de esos días. Sin evento, marca Dispersión persistente (superó el umbral de {threshold:.0g}% en {k.get('dispersion_persistent_hits', 3)} de las últimas {k.get('dispersion_persistent_window', 5)} ruedas) y si no, describe la separación de hoy; no indica calidad ni precio justo.")),
                      "Liquidez": st.column_config.Column(help="Poco líquida: cierre sin cambios varias ruedas seguidas o volumen por debajo de la parte configurable de su mediana de veinte ruedas. La dispersión de una acción poco líquida puede reflejar falta de negociación, no un precio cierto."),
                      "_index": st.column_config.Column(help=help_text("fila"))})
     reference = k["dispersion_reference"]
@@ -353,6 +356,12 @@ def render_argentina_summary(pilot, model):
         if delgadas:
             nombres = ", ".join(asset_label(r["local"]) if r.get("local") else r["company"] for r in delgadas)
             counts += f" La empresa señalada, {nombres}, es una acción poco líquida ({delgadas[0].get('thin_reason')}); su dispersión puede reflejar poca negociación."
+        con_evento = [row for row in k["ccl_by_company"] if row.get("evento")]
+        if con_evento:
+            nombres = ", ".join(asset_label(r["local"]) if r.get("local") else r["company"] for r in con_evento)
+            ev = con_evento[0].get("evento") or {}
+            counts += (f" El CCL de {nombres} puede estar distorsionado por un {ev.get('tipo')} registrado el {ev.get('ex_date')} "
+                       f"en el mercado local: entre su ex-dividendo local y el del ADR el desfase distorsiona los días de la ventana.")
         st.caption(f"Dispersión real de las últimas {reference['sessions']} sesiones (cinco empresas por sesión): "
                    f"mediana {reference['median']:.2f}%, percentil 90 {reference['p90']:.2f}%, percentil 95 {reference['p95']:.2f}%, "
                    f"percentil 99 {reference['p99']:.2f}%, máximo {reference['max']:.2f}%. Se superó el nivel " + counts + ".")
