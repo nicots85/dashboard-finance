@@ -19,6 +19,7 @@ from src.calc.cointegration import evaluate_pair_cointegration
 from install_daily_backup import mac_definition, windows_definition
 from src.data.crypto_adapter import CryptoAdapter
 from src.data.yahoo_adapter import YahooAdapter
+from update_data import update_market_asset
 
 
 def fixture(n=80, start="2025-01-01", freq="D"):
@@ -295,6 +296,35 @@ class ProtectionTests(unittest.TestCase):
         self.assertIsNone(z["close"])
         self.assertIsNone(z["z_atr"])
         self.assertEqual(reg["direction"], compute_market_regime_history(df).direction.iloc[-1])
+
+    def test_fetch_ohlcv_ventana_nocturna_devuelve_vacio_sin_error(self):
+        adapter = YahooAdapter()
+        since = pd.Timestamp("2026-10-21 02:43", tz="UTC")
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("Invalid input - start date cannot be after end date. startDate = 1792555200, endDate = 1792552483")
+
+        with patch("src.data.yahoo_adapter.yf.Ticker") as ticker:
+            ticker.return_value.history.side_effect = boom
+            df = adapter.fetch_ohlcv("GC=F", "1m", since=since)
+
+        self.assertTrue(df.empty)
+        self.assertEqual(list(df.columns), ["timestamp", "open", "high", "low", "close", "volume"])
+
+    def test_update_market_asset_ventana_nocturna_no_genera_error(self):
+        self.db.save_candles(fixture(3, start="2026-10-20", freq="min"), "GC=F", "1m", "yahoo")
+        adapter = YahooAdapter()
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("Invalid input - start date cannot be after end date.")
+
+        with patch("src.data.yahoo_adapter.yf.Ticker") as ticker:
+            ticker.return_value.history.side_effect = boom
+            res = update_market_asset(adapter, self.db, "GC=F", ["1m"])
+
+        self.assertEqual(len(res), 1)
+        self.assertTrue(res[0]["status"].startswith("Sin datos nuevos"), res[0])
+        self.assertFalse(res[0]["status"].startswith("ERROR"))
 
 
 if __name__ == "__main__":

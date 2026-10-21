@@ -82,6 +82,14 @@ class YahooAdapter(BaseAdapter):
             if timeframe in ["1m", "5m", "15m", "1h", "4h"]:
                 start_dt = earliest_allowed
 
+        # Sin datos nuevos: si la última fecha conocida ya es "hoy" o
+        # posterior en UTC, no hay nada descargable. Esto también cubre
+        # el caso en que yfinance toma el fin del rango en horario del
+        # mercado y lo interpreta como UTC (inicio después del fin en la
+        # ventana nocturna).
+        if start_dt is not None and start_dt >= now_utc:
+            return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+
         ticker = yf.Ticker(symbol)
         raw_df = pd.DataFrame()
 
@@ -107,6 +115,10 @@ class YahooAdapter(BaseAdapter):
             except Exception as e:
                 logger.warning(f"Intento {attempt}/{self.max_retries} falló para {symbol} ({timeframe}): {e}")
                 if attempt == self.max_retries:
+                    if "start date cannot be after end date" in str(e).lower():
+                        # Ventana nocturna de Yahoo: el inicio del rango queda
+                        # después del fin; no hay datos nuevos, no es un error.
+                        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
                     raise
                 time.sleep(self.retry_delay * attempt)
 
